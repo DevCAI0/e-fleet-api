@@ -1,0 +1,386 @@
+{
+    "info": {
+        "_postman_id": "e-fleet-comandos-collection",
+        "name": "e-fleet Comandos",
+        "description": "Collection para testar comandos da API e-fleet",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        "_exporter_id": "e-fleet-comandos"
+    },
+    "item": [
+        {
+            "name": "Listar Unidades",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/comandos/unidades",
+                    "host": ["{{base_url}}"],
+                    "path": ["api", "comandos", "unidades"]
+                },
+                "description": "Lista todas as unidades ativas com módulo e serial configurados"
+            },
+            "response": []
+        },
+        {
+            "name": "Comando Hodômetro",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"unidade_key\": \"ST300|123456\",\n    \"valor\": 50000\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/comandos/hodometro",
+                    "host": ["{{base_url}}"],
+                    "path": ["api", "comandos", "hodometro"]
+                },
+                "description": "Define o valor do hodômetro para uma unidade específica"
+            },
+            "response": []
+        },
+        {
+            "name": "Comando Reboot",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"unidade_key\": \"ST300|123456\"\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/comandos/reboot",
+                    "host": ["{{base_url}}"],
+                    "path": ["api", "comandos", "reboot"]
+                },
+                "description": "Reinicia o módulo de rastreamento da unidade"
+            },
+            "response": []
+        },
+        {
+            "name": "Velocidade Máxima",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"unidade_key\": \"ST300|123456\",\n    \"velocidade\": 80\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/comandos/velocidade-maxima",
+                    "host": ["{{base_url}}"],
+                    "path": ["api", "comandos", "velocidade-maxima"]
+                },
+                "description": "Configura a velocidade máxima permitida para a unidade"
+            },
+            "response": []
+        },
+        {
+            "name": "Configurar Rede",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"unidade_key\": \"ST300|123456\"\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/comandos/configurar-rede",
+                    "host": ["{{base_url}}"],
+                    "path": ["api", "comandos", "configurar-rede"]
+                },
+                "description": "Configura os parâmetros de rede da unidade"
+            },
+            "response": []
+        },
+        {
+            "name": "Comandos Pendentes",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/comandos/pendentes?per_page=20",
+                    "host": ["{{base_url}}"],
+                    "path": ["api", "comandos", "pendentes"],
+                    "query": [
+                        {
+                            "key": "per_page",
+                            "value": "20",
+                            "description": "Número de itens por página"
+                        },
+                        {
+                            "key": "serial",
+                            "value": "123456",
+                            "disabled": true,
+                            "description": "Filtrar por serial específico"
+                        }
+                    ]
+                },
+                "description": "Lista comandos que ainda não foram enviados"
+            },
+            "response": []
+        },
+        {
+            "name": "Comandos Enviados",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/comandos/enviados?per_page=20",
+                    "host": ["{{base_url}}"],
+                    "path": ["api", "comandos", "enviados"],
+                    "query": [
+                        {
+                            "key": "per_page",
+                            "value": "20",
+                            "description": "Número de itens por página"
+                        },
+                        {
+                            "key": "serial",
+                            "value": "123456",
+                            "disabled": true,
+                            "description": "Filtrar por serial específico"
+                        }
+                    ]
+                },
+                "description": "Lista comandos que já foram enviados para os dispositivos"
+            },
+            "response": []
+        },
+        {
+            "name": "Histórico de Comandos",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/comandos/historico?per_page=20",
+                    "host": ["{{base_url}}"],
+                    "path": ["api", "comandos", "historico"],
+                    "query": [
+                        {
+                            "key": "per_page",
+                            "value": "20",
+                            "description": "Número de itens por página"
+                        },
+                        {
+                            "key": "serial",
+                            "value": "123456",
+                            "disabled": true,
+                            "description": "Filtrar por serial específico"
+                        },
+                        {
+                            "key": "data_inicio",
+                            "value": "2025-01-01",
+                            "disabled": true,
+                            "description": "Data inicial (YYYY-MM-DD)"
+                        },
+                        {
+                            "key": "data_fim",
+                            "value": "2025-01-31",
+                            "disabled": true,
+                            "description": "Data final (YYYY-MM-DD)"
+                        }
+                    ]
+                },
+                "description": "Lista histórico completo de comandos processados"
+            },
+            "response": []
+        },
+        {
+            "name": "Logs de Resposta",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{auth_token}}"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/comandos/logs?per_page=20",
+                    "host": ["{{base_url}}"],
+                    "path": ["api", "comandos", "logs"],
+                    "query": [
+                        {
+                            "key": "per_page",
+                            "value": "20",
+                            "description": "Número de itens por página"
+                        },
+                        {
+                            "key": "serial",
+                            "value": "123456",
+                            "disabled": true,
+                            "description": "Filtrar por serial específico"
+                        },
+                        {
+                            "key": "data_inicio",
+                            "value": "2025-01-01",
+                            "disabled": true,
+                            "description": "Data inicial (YYYY-MM-DD)"
+                        },
+                        {
+                            "key": "data_fim",
+                            "value": "2025-01-31",
+                            "disabled": true,
+                            "description": "Data final (YYYY-MM-DD)"
+                        }
+                    ]
+                },
+                "description": "Lista logs de resposta dos dispositivos"
+            },
+            "response": []
+        }
+    ],
+    "event": [
+        {
+            "listen": "prerequest",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    "// Verificar se tem token de auth",
+                    "if (!pm.environment.get('auth_token')) {",
+                    "    console.log('⚠️ Token de autenticação não encontrado!');",
+                    "    console.log('Execute primeiro o login na collection de Auth');",
+                    "}"
+                ]
+            }
+        },
+        {
+            "listen": "test",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    "// Script global para todas as requisições",
+                    "if (pm.response.code === 401) {",
+                    "    console.log('❌ Token expirado ou inválido. Faça login novamente.');",
+                    "}",
+                    "",
+                    "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                    "    console.log('✅ Requisição bem-sucedida');",
+                    "} else {",
+                    "    console.log('❌ Erro na requisição:', pm.response.code);",
+                    "}"
+                ]
+            }
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:8000",
+            "type": "string"
+        }
+    ]
+}
