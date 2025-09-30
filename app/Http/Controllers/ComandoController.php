@@ -89,6 +89,19 @@ class ComandoController extends Controller
                 ], 400);
             }
 
+            // Verificar se já existe comando pendente para esta unidade e tipo
+            $comandoPendente = ComandoPendente::where('ID_Disp', $serial)
+                ->where('comando_nome', 'Hodômetro')
+                ->pendentes()
+                ->first();
+
+            if ($comandoPendente) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Já existe um comando de hodômetro pendente para esta unidade'
+                ], 409);
+            }
+
             // Gerar comando
             $comandoString = "SA200CMD;{$serial};02;SetOdometer={$valor}";
 
@@ -149,6 +162,19 @@ class ComandoController extends Controller
             }
 
             [$modulo, $serial] = $unidadeKey;
+
+            // Verificar se já existe comando pendente para esta unidade e tipo
+            $comandoPendente = ComandoPendente::where('ID_Disp', $serial)
+                ->where('comando_nome', 'Reboot')
+                ->pendentes()
+                ->first();
+
+            if ($comandoPendente) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Já existe um comando de reboot pendente para esta unidade'
+                ], 409);
+            }
 
             // Gerar comando
             $comandoString = "SA200CMD;{$serial};02;Reboot";
@@ -212,6 +238,19 @@ class ComandoController extends Controller
             [$modulo, $serial] = $unidadeKey;
             $velocidade = $request->velocidade;
 
+            // Verificar se já existe comando pendente para esta unidade e tipo
+            $comandoPendente = ComandoPendente::where('ID_Disp', $serial)
+                ->where('comando_nome', 'Velocidade')
+                ->pendentes()
+                ->first();
+
+            if ($comandoPendente) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Já existe um comando de velocidade pendente para esta unidade'
+                ], 409);
+            }
+
             // Gerar comando
             $comandoString = "SA200SVC;{$serial};02;1;{$velocidade};0;0;0;0;1;1;1;0;0;0;0";
 
@@ -272,6 +311,19 @@ class ComandoController extends Controller
             }
 
             [$modulo, $serial] = $unidadeKey;
+
+            // Verificar se já existe comando pendente para esta unidade e tipo
+            $comandoPendente = ComandoPendente::where('ID_Disp', $serial)
+                ->where('comando_nome', 'Rede')
+                ->pendentes()
+                ->first();
+
+            if ($comandoPendente) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Já existe um comando de configuração de rede pendente para esta unidade'
+                ], 409);
+            }
 
             // Gerar comando de configuração de rede
             $comandoString = "SA200NTW;{$serial};02;0;smart.m2m.vivo.com.br;vivo;vivo;177.87.8.43;7210;200.254.242.19;7210;0;8486";
@@ -423,7 +475,8 @@ class ComandoController extends Controller
             $query = ComandoResposta::orderBy('data_recebimento', 'desc');
 
             if ($serial) {
-                $query->where('id_unidade', $serial);
+                // Converter serial para inteiro pois o campo id_unidade no banco é int
+                $query->where('id_unidade', (int) $serial);
             }
 
             if ($dataInicio) {
@@ -449,4 +502,18 @@ class ComandoController extends Controller
         }
     }
 
+    /**
+     * Obter estatísticas de comandos por tipo
+     */
+    private function getComandosPorTipo(): array
+    {
+        return ComandoHistorico::selectRaw('comando_nome, COUNT(*) as total')
+            ->whereDate('data_solicitacao', '>=', now()->subDays(30))
+            ->whereNotNull('comando_nome')
+            ->groupBy('comando_nome')
+            ->orderByDesc('total')
+            ->get()
+            ->pluck('total', 'comando_nome')
+            ->toArray();
+    }
 }
