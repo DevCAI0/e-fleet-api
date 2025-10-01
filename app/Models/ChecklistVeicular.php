@@ -92,7 +92,7 @@ class ChecklistVeicular extends Model
      */
     public function usuarioAnalise()
     {
-        return $this->belongsTo(User::class, 'id_user_analise', 'id');
+        return $this->belongsTo(User::class, 'id_user_analise', 'id_user');
     }
 
     /**
@@ -100,7 +100,7 @@ class ChecklistVeicular extends Model
      */
     public function usuarioFinalizacao()
     {
-        return $this->belongsTo(User::class, 'id_user_finalizacao', 'id');
+        return $this->belongsTo(User::class, 'id_user_finalizacao', 'id_user');
     }
 
     /**
@@ -168,9 +168,18 @@ class ChecklistVeicular extends Model
     public function getPercentualOk(): float
     {
         $campos = [
-            'modulo_rastreador', 'sirene', 'leitor_ibutton', 'camera',
-            'tomada_usb', 'wifi', 'sensor_velocidade', 'sensor_rpm',
-            'antena_gps', 'antena_gprs', 'instalacao_eletrica', 'fixacao_equipamento'
+            'modulo_rastreador',
+            'sirene',
+            'leitor_ibutton',
+            'camera',
+            'tomada_usb',
+            'wifi',
+            'sensor_velocidade',
+            'sensor_rpm',
+            'antena_gps',
+            'antena_gprs',
+            'instalacao_eletrica',
+            'fixacao_equipamento'
         ];
 
         $total = count($campos);

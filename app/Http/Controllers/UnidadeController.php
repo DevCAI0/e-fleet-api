@@ -4,105 +4,118 @@ namespace App\Http\Controllers;
 
 use App\Models\Unidade;
 use App\Models\Rpr;
+use App\Models\ChecklistVeicular;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class UnidadeController extends Controller
 {
-  public function veiculosComRpr(Request $request): JsonResponse
-{
-    try {
-        $rprsAtivos = Rpr::with(['unidade' => function($query) {
-            $query->whereNotNull('lat')
-                  ->whereNotNull('lon')
-                  ->where('lat', '!=', 0)
-                  ->where('lon', '!=', 0);
-        }])
-        ->whereHas('unidade', function($query) {
-            $query->whereNotNull('lat')
-                  ->whereNotNull('lon')
-                  ->where('lat', '!=', 0)
-                  ->where('lon', '!=', 0);
-        })
-        // Usa 'id' porque é a primary key
-        ->select('id', 'id_unidade', 'status_t1', 'status_t2', 'status_t3', 'status_t4',
-                'status_t5', 'status_t6', 'status_t7', 'status_t8', 'status_t9',
-                'status_t10', 'status_t11', 'data_cadastro')
-        ->orderBy('data_cadastro', 'desc')
-        ->get()
-        ->groupBy('id_unidade')
-        ->map(function($rprs) {
-            return $rprs->first();
-        });
+    public function veiculosComRpr(Request $request): JsonResponse
+    {
+        try {
+            $rprsAtivos = Rpr::with(['unidade' => function($query) {
+                $query->whereNotNull('lat')
+                      ->whereNotNull('lon')
+                      ->where('lat', '!=', 0)
+                      ->where('lon', '!=', 0);
+            }])
+            ->whereHas('unidade', function($query) {
+                $query->whereNotNull('lat')
+                      ->whereNotNull('lon')
+                      ->where('lat', '!=', 0)
+                      ->where('lon', '!=', 0);
+            })
+            ->select('id', 'id_unidade', 'status_t1', 'status_t2', 'status_t3', 'status_t4',
+                    'status_t5', 'status_t6', 'status_t7', 'status_t8', 'status_t9',
+                    'status_t10', 'status_t11', 'data_cadastro')
+            ->orderBy('data_cadastro', 'desc')
+            ->get()
+            ->groupBy('id_unidade')
+            ->map(function($rprs) {
+                return $rprs->first();
+            });
 
-        $unidadesMapeadas = $rprsAtivos->map(function ($rpr) {
-            $unidade = $rpr->unidade;
+            // Buscar checklists aprovados
+            $checklistsAprovados = ChecklistVeicular::where('finalizado', true)
+                ->where('status_geral', 'APROVADO')
+                ->pluck('id_rpr')
+                ->toArray();
 
-            if (!$unidade) {
-                return null;
-            }
+            $unidadesMapeadas = $rprsAtivos->map(function ($rpr) use ($checklistsAprovados) {
+                $unidade = $rpr->unidade;
 
-            $isOnline = $this->isOnline($unidade);
-            $statusMovimento = $this->determinarStatusMovimento($unidade);
+                if (!$unidade) {
+                    return null;
+                }
 
-            $temProblema = $rpr->status_t1 === 'S' ||
-                           $rpr->status_t2 === 'S' ||
-                           $rpr->status_t3 === 'S' ||
-                           $rpr->status_t4 === 'S' ||
-                           $rpr->status_t5 === 'S' ||
-                           $rpr->status_t6 === 'S' ||
-                           $rpr->status_t9 === 'S' ||
-                           $rpr->status_t10 === 'S';
+                // Se este RPR já tem checklist aprovado, não mostrar
+                if (in_array($rpr->id, $checklistsAprovados)) {
+                    return null;
+                }
 
-            $estaOk = $rpr->status_t7 === 'S';
+                $isOnline = $this->isOnline($unidade);
+                $statusMovimento = $this->determinarStatusMovimento($unidade);
 
-            return [
-                'id' => $unidade->id_unidade,
-                'id_rpr' => $rpr->id, // Usa $rpr->id porque a PK é 'id'
-                'numero' => $this->getNumeroUnidade($unidade),
-                'nome' => $unidade->unidade_nome ?? 'Sem nome',
-                'placa' => $unidade->placa ?? 'Sem placa',
-                'posicao' => [
-                    'latitude' => (float) $unidade->lat,
-                    'longitude' => (float) $unidade->lon,
-                ],
-                'endereco' => $this->getEnderecoResumido($unidade->endereco_completo),
-                'velocidade' => (int) ($unidade->velocidade ?? 0),
-                'ignicao' => (bool) ($unidade->ignicao ?? false),
-                'voltagem' => (float) ($unidade->voltagem ?? 0),
-                'quilometragem' => (int) ($unidade->quilometragem ?? 0),
-                'data_evento' => $unidade->data_evento ?
-                    \Carbon\Carbon::parse($unidade->data_evento)->toIso8601String() : null,
-                'data_server' => $unidade->data_server ?
-                    \Carbon\Carbon::parse($unidade->data_server)->toIso8601String() : null,
-                'status_movimento' => $statusMovimento,
-                'cor_marker' => $this->determinarCorMarker($unidade, $isOnline, $temProblema, $estaOk),
-                'icone_marker' => $temProblema ? 'build' : 'directions-bus',
-                'online' => $isOnline,
-                'tem_rpr_pendente' => true,
-                'tem_problema' => $temProblema,
-                'rpr_ok' => $estaOk,
-            ];
-        })->filter()->values();
+                $temProblema = $rpr->status_t1 === 'S' ||
+                               $rpr->status_t2 === 'S' ||
+                               $rpr->status_t3 === 'S' ||
+                               $rpr->status_t4 === 'S' ||
+                               $rpr->status_t5 === 'S' ||
+                               $rpr->status_t6 === 'S' ||
+                               $rpr->status_t9 === 'S' ||
+                               $rpr->status_t10 === 'S';
 
-        return response()->json([
-            'status' => 'success',
-            'data' => $unidadesMapeadas,
-            'total' => $unidadesMapeadas->count(),
-            'timestamp' => now()->toISOString()
-        ]);
+                $estaOk = $rpr->status_t7 === 'S';
 
-    } catch (\Exception $e) {
-        \Log::error('Erro em veiculosComRpr: ' . $e->getMessage());
-        \Log::error($e->getTraceAsString());
+                return [
+                    'id' => $unidade->id_unidade,
+                    'id_rpr' => $rpr->id,
+                    'numero' => $this->getNumeroUnidade($unidade),
+                    'nome' => $unidade->unidade_nome ?? 'Sem nome',
+                    'placa' => $unidade->placa ?? 'Sem placa',
+                    'posicao' => [
+                        'latitude' => (float) $unidade->lat,
+                        'longitude' => (float) $unidade->lon,
+                    ],
+                    'endereco' => $this->getEnderecoResumido($unidade->endereco_completo),
+                    'velocidade' => (int) ($unidade->velocidade ?? 0),
+                    'ignicao' => (bool) ($unidade->ignicao ?? false),
+                    'voltagem' => (float) ($unidade->voltagem ?? 0),
+                    'quilometragem' => (int) ($unidade->quilometragem ?? 0),
+                    'data_evento' => $unidade->data_evento ?
+                        \Carbon\Carbon::parse($unidade->data_evento)->toIso8601String() : null,
+                    'data_server' => $unidade->data_server ?
+                        \Carbon\Carbon::parse($unidade->data_server)->toIso8601String() : null,
+                    'status_movimento' => $statusMovimento,
+                    'cor_marker' => $this->determinarCorMarker($unidade, $isOnline, $temProblema, $estaOk),
+                    'icone_marker' => $temProblema ? 'build' : 'directions-bus',
+                    'online' => $isOnline,
+                    'tem_rpr_pendente' => true,
+                    'tem_problema' => $temProblema,
+                    'rpr_ok' => $estaOk,
+                ];
+            })->filter()->values();
 
-        return response()->json([
-            'status' => 'error',
-            'message' => 'Erro ao buscar veículos com RPR: ' . $e->getMessage()
-        ], 500);
+            return response()->json([
+                'status' => 'success',
+                'data' => $unidadesMapeadas,
+                'total' => $unidadesMapeadas->count(),
+                'timestamp' => now()->toISOString()
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Erro em veiculosComRpr: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Erro ao buscar veículos com RPR: ' . $e->getMessage()
+            ], 500);
+        }
     }
-}
+
     public function mapa(Request $request): JsonResponse
     {
         try {
@@ -140,7 +153,7 @@ class UnidadeController extends Controller
             $idsUnidades = $unidades->pluck('id_unidade')->toArray();
 
             $rprsAtivos = Rpr::whereIn('id_unidade', $idsUnidades)
-                ->select('id_unidade', 'status_t1', 'status_t2', 'status_t3', 'status_t4',
+                ->select('id', 'id_unidade', 'status_t1', 'status_t2', 'status_t3', 'status_t4',
                         'status_t5', 'status_t6', 'status_t7', 'status_t8', 'status_t9',
                         'status_t10', 'status_t11', 'data_cadastro')
                 ->orderBy('data_cadastro', 'desc')
@@ -150,7 +163,13 @@ class UnidadeController extends Controller
                     return $rprs->first();
                 });
 
-            $unidadesMapeadas = $unidades->map(function ($unidade) use ($rprsAtivos) {
+            // Buscar checklists aprovados
+            $checklistsAprovados = ChecklistVeicular::where('finalizado', true)
+                ->where('status_geral', 'APROVADO')
+                ->pluck('id_rpr')
+                ->toArray();
+
+            $unidadesMapeadas = $unidades->map(function ($unidade) use ($rprsAtivos, $checklistsAprovados) {
                 $isOnline = $this->isOnline($unidade);
                 $statusMovimento = $this->determinarStatusMovimento($unidade);
                 $rprAtivo = $rprsAtivos->get($unidade->id_unidade);
@@ -160,17 +179,22 @@ class UnidadeController extends Controller
                 $estaOk = false;
 
                 if ($rprAtivo) {
-                    $temRprPendente = true;
-                    $temProblema = $rprAtivo->status_t1 === 'S' ||
-                                   $rprAtivo->status_t2 === 'S' ||
-                                   $rprAtivo->status_t3 === 'S' ||
-                                   $rprAtivo->status_t4 === 'S' ||
-                                   $rprAtivo->status_t5 === 'S' ||
-                                   $rprAtivo->status_t6 === 'S' ||
-                                   $rprAtivo->status_t9 === 'S' ||
-                                   $rprAtivo->status_t10 === 'S';
+                    // Se este RPR já tem checklist aprovado, não considerar como pendente
+                    if (in_array($rprAtivo->id, $checklistsAprovados)) {
+                        $rprAtivo = null;
+                    } else {
+                        $temRprPendente = true;
+                        $temProblema = $rprAtivo->status_t1 === 'S' ||
+                                       $rprAtivo->status_t2 === 'S' ||
+                                       $rprAtivo->status_t3 === 'S' ||
+                                       $rprAtivo->status_t4 === 'S' ||
+                                       $rprAtivo->status_t5 === 'S' ||
+                                       $rprAtivo->status_t6 === 'S' ||
+                                       $rprAtivo->status_t9 === 'S' ||
+                                       $rprAtivo->status_t10 === 'S';
 
-                    $estaOk = $rprAtivo->status_t7 === 'S';
+                        $estaOk = $rprAtivo->status_t7 === 'S';
+                    }
                 }
 
                 return [
@@ -295,9 +319,7 @@ class UnidadeController extends Controller
     private function determinarCorMarker($unidade, $isOnline, $temProblema = false, $estaOk = false): string
     {
         if ($temProblema) return '#FF6B6B';
-
         if ($estaOk) return '#10B981';
-
         if (!$isOnline) return '#EF4444';
 
         $velocidade = (int) ($unidade->velocidade ?? 0);
