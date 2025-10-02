@@ -113,7 +113,7 @@ class ChecklistVeicularController extends Controller
         return $itens;
     }
 
-    public function statusVeiculo($id_unidade)
+      public function statusVeiculo($id_unidade)
     {
         $unidade = Unidade::find($id_unidade);
 
@@ -124,41 +124,61 @@ class ChecklistVeicularController extends Controller
             ], 404);
         }
 
+        // Buscar o RPR mais recente desta unidade
         $rpr = Rpr::where('id_unidade', $id_unidade)
+            ->with(['usuario:id_user,nome'])
             ->latest('data_cadastro')
             ->first();
 
-        $checklistAtivo = ChecklistVeicular::where('id_unidade', $id_unidade)
-            ->where('finalizado', false)
-            ->latest('data_analise')
-            ->first();
+        // Buscar checklist mais recente (finalizado ou não)
+        $checklistAtivo = null;
+        if ($rpr) {
+            $checklistAtivo = ChecklistVeicular::where('id_rpr', $rpr->id)
+                ->latest('data_analise')
+                ->first();
+        }
+
+        $response = [
+            'unidade' => [
+                'id' => $unidade->id_unidade,
+                'nome' => $unidade->unidade_nome,
+                'placa' => $unidade->placa,
+                'serial' => $unidade->serial,
+                'status' => $unidade->status,
+            ],
+        ];
+
+        if ($rpr) {
+            $response['rpr'] = [
+                'id' => $rpr->id,
+                'data_cadastro' => $rpr->data_cadastro->format('Y-m-d H:i:s'),
+                'problemas' => $rpr->getProblemasAtivos(),
+                'usuario' => $rpr->usuario ? $rpr->usuario->nome : null,
+            ];
+        }
+
+        if ($checklistAtivo) {
+            $response['checklist_ativo'] = [
+                'id' => $checklistAtivo->id,
+                'id_rpr' => $checklistAtivo->id_rpr,
+                'status' => $checklistAtivo->status_geral,
+                'data_analise' => $checklistAtivo->data_analise
+                    ? $checklistAtivo->data_analise->format('Y-m-d H:i:s')
+                    : null,
+                'data_prevista' => $checklistAtivo->data_prevista_conclusao
+                    ? $checklistAtivo->data_prevista_conclusao->format('Y-m-d')
+                    : null,
+                'finalizado' => (bool) $checklistAtivo->finalizado,
+                'data_finalizacao' => $checklistAtivo->data_finalizacao
+                    ? $checklistAtivo->data_finalizacao->format('Y-m-d H:i:s')
+                    : null,
+                'itens_com_problema' => $checklistAtivo->getItensComProblema(),
+            ];
+        }
 
         return response()->json([
             'success' => true,
-            'data' => [
-                'unidade' => [
-                    'id' => $unidade->id_unidade,
-                    'nome' => $unidade->unidade_nome,
-                    'placa' => $unidade->placa,
-                    'serial' => $unidade->serial,
-                    'status' => $unidade->status,
-                ],
-                'rpr' => $rpr ? [
-                    'id' => $rpr->id,
-                    'tem_problemas' => $rpr->temProblema(),
-                    'esta_ok' => $rpr->estaOk(),
-                    'problemas' => $this->getItensChecklist($rpr),
-                    'data_cadastro' => $rpr->data_cadastro->format('Y-m-d H:i:s'),
-                ] : null,
-                'checklist_ativo' => $checklistAtivo ? [
-                    'id' => $checklistAtivo->id,
-                    'status' => $checklistAtivo->status_geral,
-                    'data_analise' => $checklistAtivo->data_analise->format('Y-m-d H:i:s'),
-                    'data_prevista' => $checklistAtivo->data_prevista_conclusao?->format('Y-m-d'),
-                    'percentual_ok' => round($checklistAtivo->getPercentualOk(), 2),
-                    'itens_com_problema' => $checklistAtivo->getItensComProblema(),
-                ] : null,
-            ]
+            'data' => $response
         ]);
     }
 
