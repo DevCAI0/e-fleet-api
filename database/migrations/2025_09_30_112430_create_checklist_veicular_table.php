@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('checklist_veicular', function (Blueprint $table) {
             $table->id();
-            $table->unsignedInteger('id_unidade');
+            $table->unsignedInteger('id');
             $table->unsignedBigInteger('id_rpr')->nullable();
             $table->unsignedBigInteger('id_user_analise');
             $table->dateTime('data_analise');
@@ -56,7 +56,7 @@ return new class extends Migration
             $table->unsignedBigInteger('id_user_finalizacao')->nullable();
 
             // Índices
-            $table->index('id_unidade');
+            $table->index('id');
             $table->index('id_rpr');
             $table->index('status_geral');
             $table->index('finalizado');

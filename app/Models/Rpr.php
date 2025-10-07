@@ -14,7 +14,7 @@ class Rpr extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'id_unidade',
+        'id_unidade',  // Foreign key para unidades.id
         'id_user',
         'status_t1',
         'status_t2',
@@ -46,33 +46,26 @@ class Rpr extends Model
         'id_user' => 'integer'
     ];
 
-    /**
-     * Relacionamento com Unidade
-     */
+    // ========================================
+    // RELACIONAMENTOS
+    // ========================================
+
     public function unidade()
     {
-        return $this->belongsTo(Unidade::class, 'id_unidade', 'id_unidade');
+        // id_unidade (coluna em rpr) -> id (coluna em unidades)
+        return $this->belongsTo(Unidade::class, 'id_unidade', 'id');
     }
 
-    /**
-     * Relacionamento com Usuário - CORRIGIDO
-     */
     public function usuario()
     {
-        return $this->belongsTo(User::class, 'id_user', 'id_user');
+        return $this->belongsTo(User::class, 'id_user', 'id');
     }
 
-    /**
-     * Relacionamento com Checklists
-     */
     public function checklists()
     {
         return $this->hasMany(ChecklistVeicular::class, 'id_rpr', 'id');
     }
 
-    /**
-     * Obter checklist ativo (não finalizado)
-     */
     public function checklistAtivo()
     {
         return $this->hasOne(ChecklistVeicular::class, 'id_rpr', 'id')
@@ -80,9 +73,10 @@ class Rpr extends Model
                     ->latest('data_analise');
     }
 
-    /**
-     * Verificar se tem algum status ativo
-     */
+    // ========================================
+    // MÉTODOS DE VERIFICAÇÃO
+    // ========================================
+
     public function temProblema(): bool
     {
         return $this->status_t1 === 'S' ||
@@ -95,17 +89,11 @@ class Rpr extends Model
                $this->status_t10 === 'S';
     }
 
-    /**
-     * Verificar se está OK
-     */
     public function estaOk(): bool
     {
         return $this->status_t7 === 'S';
     }
 
-    /**
-     * Obter lista de problemas ativos
-     */
     public function getProblemasAtivos(): array
     {
         $problemas = [];
@@ -136,5 +124,10 @@ class Rpr extends Model
         }
 
         return $problemas;
+    }
+
+    public function veiculosOS()
+    {
+        return $this->hasMany(OrdemServicoVeiculo::class, 'id_rpr');
     }
 }

@@ -15,7 +15,7 @@ class RprController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id_unidade' => 'required|exists:unidades,id_unidade',
+            'id_unidade' => 'required|exists:unidades,id',
             'status_t1' => 'required|in:S,N',
             'status_t2' => 'required|in:S,N',
             'status_t3' => 'required|in:S,N',
@@ -65,7 +65,7 @@ class RprController extends Controller
 
     public function buscarPorUnidade($id_unidade)
     {
-        $unidade = Unidade::find($id_unidade);
+        $unidade = Unidade::with(['empresa:id,sigla'])->find($id_unidade);
 
         if (!$unidade) {
             return response()->json([
@@ -75,7 +75,7 @@ class RprController extends Controller
         }
 
         $rprs = Rpr::where('id_unidade', $id_unidade)
-            ->with(['usuario:id_user,nome'])
+            ->with(['usuario:id,nome'])
             ->orderBy('data_cadastro', 'desc')
             ->get();
 
@@ -97,28 +97,27 @@ class RprController extends Controller
 
     public function listar(Request $request)
     {
-        // Converter para boolean corretamente
         $mostrarTodos = filter_var($request->get('mostrar_todos', false), FILTER_VALIDATE_BOOLEAN);
         $perPage = $request->get('per_page', 15);
 
         Log::info('===== INÍCIO LISTAGEM RPR =====');
         Log::info('Parâmetro mostrar_todos:', ['valor' => $mostrarTodos, 'tipo' => gettype($mostrarTodos)]);
 
-        // Buscar todos os RPRs com suas relações
-        $query = Rpr::with(['unidade:id_unidade,unidade_nome,placa', 'usuario:id_user,nome']);
+        $query = Rpr::with([
+            'unidade:id,numero_ordem,placa,id_empresa',
+            'unidade.empresa:id,sigla',
+            'usuario:id,nome'
+        ]);
 
         if ($request->filled('id_unidade')) {
             $query->where('id_unidade', $request->id_unidade);
         }
 
-        // Buscar todos sem paginação primeiro
         $todosRprs = $query->orderBy('data_cadastro', 'desc')->get();
 
         Log::info('Total RPRs encontrados no banco:', ['count' => $todosRprs->count()]);
 
-        // Processar e filtrar
         $data = $todosRprs->map(function ($rpr) {
-            // Verificar se existe checklist aprovado para este RPR
             $checklistAprovado = ChecklistVeicular::where('id_rpr', $rpr->id)
                 ->where('status_geral', 'APROVADO')
                 ->where('finalizado', true)
@@ -143,8 +142,8 @@ class RprController extends Controller
                 'id' => $rpr->id,
                 'id_unidade' => $rpr->id_unidade,
                 'unidade' => [
-                    'id' => $rpr->unidade->id_unidade,
-                    'nome' => $rpr->unidade->unidade_nome,
+                    'id' => $rpr->unidade->id,
+                    'numero_ordem' => $rpr->unidade->numero_ordem_formatado,
                     'placa' => $rpr->unidade->placa,
                 ],
                 'problemas' => $problemas,
@@ -159,16 +158,13 @@ class RprController extends Controller
 
         Log::info('Antes do filtro:', ['total_processados' => $data->count()]);
 
-        // Filtrar baseado no parâmetro
         if ($mostrarTodos) {
-            // Quando mostrar_todos = true, mostrar APENAS resolvidos
             $data = $data->filter(function ($rpr) {
                 $resultado = $rpr['checklist_resolvido'];
                 Log::info('Filtro RESOLVIDOS:', ['id' => $rpr['id'], 'passou' => $resultado]);
                 return $resultado;
             })->values();
         } else {
-            // Quando mostrar_todos = false, mostrar APENAS pendentes (não resolvidos)
             $data = $data->filter(function ($rpr) {
                 $resultado = $rpr['tem_problemas'] && !$rpr['checklist_resolvido'];
                 Log::info('Filtro PENDENTES:', [

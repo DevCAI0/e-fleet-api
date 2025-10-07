@@ -25,89 +25,113 @@ class ComandoPendente extends Model
     ];
 
     protected $casts = [
-        'ID_Disp' => 'integer',
         'data_solicitacao' => 'datetime',
         'data_envio' => 'datetime',
         'data_confirmacao' => 'datetime',
         'usuario' => 'integer'
     ];
 
-    /**
-     * Relacionamento com usuário
-     */
+    // ========================================
+    // RELACIONAMENTOS
+    // ========================================
+
     public function user()
     {
-        return $this->belongsTo(User::class, 'usuario', 'id_user');
+        return $this->belongsTo(User::class, 'usuario', 'id');
     }
 
-    /**
-     * Relacionamento com unidade (por serial)
-     */
+    public function modulo()
+    {
+        return $this->belongsTo(Modulo::class, 'ID_Disp', 'serial');
+    }
+
     public function unidade()
     {
-        return $this->belongsTo(Unidade::class, 'ID_Disp', 'serial');
+        return $this->hasOneThrough(
+            Unidade::class,
+            Modulo::class,
+            'serial',
+            'id_modulo',
+            'ID_Disp',
+            'id'
+        );
     }
 
-    /**
-     * Scope para comandos pendentes
-     */
+    // ========================================
+    // SCOPES
+    // ========================================
+
     public function scopePendentes($query)
     {
         return $query->whereNull('data_envio');
     }
 
-    /**
-     * Scope para comandos enviados
-     */
     public function scopeEnviados($query)
     {
         return $query->whereNotNull('data_envio');
     }
 
-    /**
-     * Scope para comandos confirmados
-     */
     public function scopeConfirmados($query)
     {
         return $query->whereNotNull('data_confirmacao');
     }
 
-    /**
-     * Scope para comandos não confirmados
-     */
     public function scopeNaoConfirmados($query)
     {
         return $query->whereNotNull('data_envio')
                     ->whereNull('data_confirmacao');
     }
 
-    /**
-     * Verificar se comando está pendente
-     */
+    public function scopeSerial($query, $serial)
+    {
+        return $query->where('ID_Disp', $serial);
+    }
+
+    public function scopeTipo($query, $tipo)
+    {
+        return $query->where('comando_nome', $tipo);
+    }
+
+    public function scopeUsuario($query, $userId)
+    {
+        return $query->where('usuario', $userId);
+    }
+
+    // ========================================
+    // MÉTODOS DE STATUS
+    // ========================================
+
     public function isPendente(): bool
     {
         return is_null($this->data_envio);
     }
 
-    /**
-     * Verificar se comando foi enviado
-     */
     public function isEnviado(): bool
     {
         return !is_null($this->data_envio);
     }
 
-    /**
-     * Verificar se comando foi confirmado
-     */
     public function isConfirmado(): bool
     {
         return !is_null($this->data_confirmacao);
     }
 
-    /**
-     * Obter status do comando
-     */
+    public function marcarComoEnviado(): bool
+    {
+        $this->data_envio = now();
+        return $this->save();
+    }
+
+    public function marcarComoConfirmado(): bool
+    {
+        $this->data_confirmacao = now();
+        return $this->save();
+    }
+
+    // ========================================
+    // ATTRIBUTES
+    // ========================================
+
     public function getStatusAttribute(): string
     {
         if ($this->data_confirmacao) {
@@ -119,9 +143,16 @@ class ComandoPendente extends Model
         return 'pendente';
     }
 
-    /**
-     * Obter tempo desde solicitação em minutos
-     */
+    public function getStatusCorAttribute(): string
+    {
+        return match($this->status) {
+            'confirmado' => 'success',
+            'enviado' => 'warning',
+            'pendente' => 'info',
+            default => 'secondary'
+        };
+    }
+
     public function getTempoEsperaAttribute(): ?int
     {
         if (!$this->data_solicitacao) {
@@ -131,21 +162,21 @@ class ComandoPendente extends Model
         return now()->diffInMinutes($this->data_solicitacao);
     }
 
-    /**
-     * Marcar comando como enviado
-     */
-    public function marcarComoEnviado(): bool
+    public function getTempoEsperaFormatadoAttribute(): ?string
     {
-        $this->data_envio = now();
-        return $this->save();
-    }
+        $minutos = $this->tempo_espera;
 
-    /**
-     * Marcar comando como confirmado
-     */
-    public function marcarComoConfirmado(): bool
-    {
-        $this->data_confirmacao = now();
-        return $this->save();
+        if ($minutos === null) {
+            return null;
+        }
+
+        if ($minutos < 60) {
+            return "{$minutos}min";
+        }
+
+        $horas = floor($minutos / 60);
+        $mins = $minutos % 60;
+
+        return "{$horas}h {$mins}min";
     }
 }

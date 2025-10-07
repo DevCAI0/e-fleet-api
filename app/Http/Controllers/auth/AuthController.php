@@ -45,7 +45,7 @@ class AuthController extends Controller
         if (!$user->isAtivo()) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Usuário inativo'
+                'message' => 'Usuário inativo ou bloqueado'
             ], 401);
         }
 
@@ -53,17 +53,24 @@ class AuthController extends Controller
         $deviceName = $request->device_name ?? 'e-fleet-app';
         $token = $user->createToken($deviceName)->plainTextToken;
 
+        // Atualizar último login
+        $user->update([
+            'ultimo_login' => now(),
+            'ip_acesso' => $request->ip()
+        ]);
+
         return response()->json([
             'status' => 'success',
             'message' => 'Login realizado com sucesso',
             'data' => [
                 'user' => [
-                    'id' => $user->id_user,
+                    'id' => $user->id,
                     'nome' => $user->nome,
                     'login' => $user->login,
-                    'setor_user' => $user->setor_user,
-                    'ativo' => $user->ativo,
-                    'permissoes' => $user->permissoes,
+                    'email' => $user->email,
+                    'tipo_usuario' => $user->tipo_usuario,
+                    'id_empresa' => $user->id_empresa,
+                    'acessa_control' => $user->acessa_control,
                 ],
                 'token' => $token,
                 'token_type' => 'Bearer'
@@ -95,26 +102,27 @@ class AuthController extends Controller
             'status' => 'success',
             'data' => [
                 'user' => [
-                    'id' => $user->id_user,
+                    'id' => $user->id,
                     'nome' => $user->nome,
                     'login' => $user->login,
-                    'setor_user' => $user->setor_user,
-                    'ativo' => $user->ativo,
-                    'permissoes' => $user->permissoes,
+                    'email' => $user->email,
+                    'tipo_usuario' => $user->tipo_usuario,
+                    'id_empresa' => $user->id_empresa,
+                    'status' => $user->status,
                 ]
             ]
         ]);
     }
 
     /**
-     * Verificar se usuário tem uma permissão específica
+     * Verificar se usuário tem permissão de app
      */
     public function checkPermission(Request $request): JsonResponse
     {
         $user = $request->user();
 
         $validator = Validator::make($request->all(), [
-            'permission' => 'required|string',
+            'app' => 'required|string|in:conferencia,rastreamento,passagem,vigilante',
         ]);
 
         if ($validator->fails()) {
@@ -125,13 +133,13 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $hasPermission = $user->hasPermissao($request->permission);
+        $hasPermission = $user->hasPermissaoApp($request->app);
 
         return response()->json([
             'status' => 'success',
             'data' => [
                 'has_permission' => $hasPermission,
-                'permission' => $request->permission,
+                'app' => $request->app,
             ]
         ]);
     }

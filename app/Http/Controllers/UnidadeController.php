@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Unidade;
 use App\Models\Rpr;
 use App\Models\ChecklistVeicular;
+use App\Models\UsuarioLocalizacao;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Carbon\Carbon;
@@ -12,11 +13,18 @@ use Illuminate\Support\Facades\Log;
 
 class UnidadeController extends Controller
 {
+    /**
+     * Buscar veículos com RPR pendente
+     */
     public function veiculosComRpr(Request $request): JsonResponse
     {
         try {
             $rprsAtivos = Rpr::with(['unidade' => function($query) {
-                $query->whereNotNull('lat')
+                $query->select('id', 'numero_ordem', 'placa', 'lat', 'lon', 'velocidade',
+                              'ignicao', 'voltagem', 'quilometragem', 'data_evento',
+                              'data_server', 'endereco_completo', 'id_empresa')
+                      ->with('empresa:id,sigla')
+                      ->whereNotNull('lat')
                       ->whereNotNull('lon')
                       ->where('lat', '!=', 0)
                       ->where('lon', '!=', 0);
@@ -37,7 +45,6 @@ class UnidadeController extends Controller
                 return $rprs->first();
             });
 
-            // Buscar checklists aprovados
             $checklistsAprovados = ChecklistVeicular::where('finalizado', true)
                 ->where('status_geral', 'APROVADO')
                 ->pluck('id_rpr')
@@ -50,7 +57,6 @@ class UnidadeController extends Controller
                     return null;
                 }
 
-                // Se este RPR já tem checklist aprovado, não mostrar
                 if (in_array($rpr->id, $checklistsAprovados)) {
                     return null;
                 }
@@ -70,11 +76,10 @@ class UnidadeController extends Controller
                 $estaOk = $rpr->status_t7 === 'S';
 
                 return [
-                    'id' => $unidade->id_unidade,
+                    'id' => $unidade->id,
                     'id_rpr' => $rpr->id,
-                    'numero' => $this->getNumeroUnidade($unidade),
-                    'nome' => $unidade->unidade_nome ?? 'Sem nome',
-                    'placa' => $unidade->placa ?? 'Sem placa',
+                    'numero' => $unidade->numero_ordem_formatado ?? 'S/N',
+                    'placa' => $unidade->placa ?? 'S/Placa',
                     'posicao' => [
                         'latitude' => (float) $unidade->lat,
                         'longitude' => (float) $unidade->lon,
@@ -85,9 +90,9 @@ class UnidadeController extends Controller
                     'voltagem' => (float) ($unidade->voltagem ?? 0),
                     'quilometragem' => (int) ($unidade->quilometragem ?? 0),
                     'data_evento' => $unidade->data_evento ?
-                        \Carbon\Carbon::parse($unidade->data_evento)->toIso8601String() : null,
+                        Carbon::parse($unidade->data_evento)->toIso8601String() : null,
                     'data_server' => $unidade->data_server ?
-                        \Carbon\Carbon::parse($unidade->data_server)->toIso8601String() : null,
+                        Carbon::parse($unidade->data_server)->toIso8601String() : null,
                     'status_movimento' => $statusMovimento,
                     'cor_marker' => $this->determinarCorMarker($unidade, $isOnline, $temProblema, $estaOk),
                     'icone_marker' => $temProblema ? 'build' : 'directions-bus',
@@ -106,23 +111,29 @@ class UnidadeController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Erro em veiculosComRpr: ' . $e->getMessage());
-            Log::error($e->getTraceAsString());
+            Log::error('Erro ao buscar veículos com RPR', [
+                'error' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
+            ]);
 
             return response()->json([
                 'status' => 'error',
-                'message' => 'Erro ao buscar veículos com RPR: ' . $e->getMessage()
+                'message' => 'Erro interno ao processar a solicitação'
             ], 500);
         }
     }
 
+    /**
+     * Buscar unidades para o mapa
+     */
     public function mapa(Request $request): JsonResponse
     {
         try {
             $page = max(1, (int) $request->get('page', 1));
             $perPage = min(1000, max(10, (int) $request->get('per_page', 100)));
 
-            $query = Unidade::query()
+            $query = Unidade::with('empresa:id,sigla')
                 ->whereNotNull('lat')
                 ->whereNotNull('lon')
                 ->where('lat', '!=', 0)
@@ -132,9 +143,8 @@ class UnidadeController extends Controller
 
             $unidades = $query
                 ->select([
-                    'id_unidade',
-                    'unidade_nome',
-                    'n_ordem',
+                    'id',
+                    'numero_ordem',
                     'placa',
                     'lat',
                     'lon',
@@ -144,13 +154,14 @@ class UnidadeController extends Controller
                     'endereco_completo',
                     'quilometragem',
                     'voltagem',
+                    'id_empresa'
                 ])
                 ->orderByRaw('COALESCE(data_evento, "1970-01-01") DESC')
                 ->offset(($page - 1) * $perPage)
                 ->limit($perPage)
                 ->get();
 
-            $idsUnidades = $unidades->pluck('id_unidade')->toArray();
+            $idsUnidades = $unidades->pluck('id')->toArray();
 
             $rprsAtivos = Rpr::whereIn('id_unidade', $idsUnidades)
                 ->select('id', 'id_unidade', 'status_t1', 'status_t2', 'status_t3', 'status_t4',
@@ -163,7 +174,6 @@ class UnidadeController extends Controller
                     return $rprs->first();
                 });
 
-            // Buscar checklists aprovados
             $checklistsAprovados = ChecklistVeicular::where('finalizado', true)
                 ->where('status_geral', 'APROVADO')
                 ->pluck('id_rpr')
@@ -172,14 +182,13 @@ class UnidadeController extends Controller
             $unidadesMapeadas = $unidades->map(function ($unidade) use ($rprsAtivos, $checklistsAprovados) {
                 $isOnline = $this->isOnline($unidade);
                 $statusMovimento = $this->determinarStatusMovimento($unidade);
-                $rprAtivo = $rprsAtivos->get($unidade->id_unidade);
+                $rprAtivo = $rprsAtivos->get($unidade->id);
 
                 $temRprPendente = false;
                 $temProblema = false;
                 $estaOk = false;
 
                 if ($rprAtivo) {
-                    // Se este RPR já tem checklist aprovado, não considerar como pendente
                     if (in_array($rprAtivo->id, $checklistsAprovados)) {
                         $rprAtivo = null;
                     } else {
@@ -198,10 +207,9 @@ class UnidadeController extends Controller
                 }
 
                 return [
-                    'id' => $unidade->id_unidade,
-                    'numero' => $this->getNumeroUnidade($unidade),
-                    'nome' => $unidade->unidade_nome ?? 'Sem nome',
-                    'placa' => $unidade->placa ?? 'Sem placa',
+                    'id' => $unidade->id,
+                    'numero' => $unidade->numero_ordem_formatado ?? 'S/N',
+                    'placa' => $unidade->placa ?? 'S/Placa',
                     'posicao' => [
                         'latitude' => (float) $unidade->lat,
                         'longitude' => (float) $unidade->lon,
@@ -239,25 +247,39 @@ class UnidadeController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Erro ao buscar unidades para mapa', [
+                'error' => $e->getMessage()
+            ]);
+
             return response()->json([
                 'status' => 'error',
-                'message' => 'Erro ao buscar unidades'
+                'message' => 'Erro interno ao processar a solicitação'
             ], 500);
         }
     }
 
+    /**
+     * Buscar detalhes de uma unidade
+     */
     public function show(Request $request, $id): JsonResponse
     {
         try {
-            $unidade = Unidade::where('id_unidade', $id)->firstOrFail();
+            $unidade = Unidade::with('empresa:id,sigla')->where('id', $id)->first();
+
+            if (!$unidade) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Unidade não encontrada'
+                ], 404);
+            }
+
             $isOnline = $this->isOnline($unidade);
 
             return response()->json([
                 'status' => 'success',
                 'data' => [
-                    'id' => $unidade->id_unidade,
-                    'numero' => $this->getNumeroUnidade($unidade),
-                    'nome' => $unidade->unidade_nome,
+                    'id' => $unidade->id,
+                    'numero' => $unidade->numero_ordem_formatado ?? 'S/N',
                     'placa' => $unidade->placa,
                     'posicao' => [
                         'latitude' => (float) $unidade->lat,
@@ -275,19 +297,21 @@ class UnidadeController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Erro ao buscar detalhes da unidade', [
+                'id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
             return response()->json([
                 'status' => 'error',
-                'message' => 'Unidade não encontrada'
-            ], 404);
+                'message' => 'Erro interno ao processar a solicitação'
+            ], 500);
         }
     }
 
-    private function getNumeroUnidade($unidade): string
-    {
-        return $unidade->n_ordem ?:
-               ($unidade->unidade_nome ? substr($unidade->unidade_nome, 0, 15) :
-               'Unidade ' . $unidade->id_unidade);
-    }
+    // ========================================
+    // MÉTODOS PRIVADOS
+    // ========================================
 
     private function getEnderecoResumido($endereco): string
     {

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Unidade;
+use App\Models\Modulo;
 use App\Models\ComandoPendente;
 use App\Models\ComandoHistorico;
 use App\Models\ComandoResposta;
@@ -21,21 +22,43 @@ class ComandoController extends Controller
     {
         try {
             $unidades = Unidade::ativas()
-                ->comModuloSerial()
-                ->select('id_unidade', 'unidade_nome', 'placa', 'modulo', 'serial')
-                ->orderBy('unidade_nome')
+                ->with([
+                    'modulo' => function($query) {
+                        $query->select('id', 'serial', 'modelo', 'fabricante')
+                              ->where('status', 1);
+                    },
+                    'empresa:id,sigla'
+                ])
+                ->whereHas('modulo', function($query) {
+                    $query->where('status', 1)
+                          ->whereNotNull('serial');
+                })
+                ->select('id', 'numero_ordem', 'placa', 'id_modulo', 'id_empresa')
+                ->orderBy('numero_ordem')
                 ->get()
                 ->map(function ($unidade) {
+                    if (!$unidade->modulo || !$unidade->modulo->serial || !$unidade->modulo->modelo) {
+                        return null;
+                    }
+
+                    $numeroOrdem = $unidade->numero_ordem_formatado ?? 'S/N';
+                    $placa = $unidade->placa ?? 'S/Placa';
+                    $modelo = $unidade->modulo->modelo ?? 'Desconhecido';
+                    $serial = $unidade->modulo->serial ?? '000000';
+
                     return [
-                        'id' => $unidade->id_unidade,
-                        'nome' => $unidade->unidade_nome,
-                        'placa' => $unidade->placa,
-                        'modulo' => $unidade->modulo,
-                        'serial' => $unidade->serial,
-                        'key' => $unidade->modulo . '|' . $unidade->serial,
-                        'display' => $unidade->unidade_nome . ' - ' . ($unidade->placa ?? 'S/Placa') . ' (Módulo: ' . $unidade->modulo . ')'
+                        'id' => $unidade->id,
+                        'numero_ordem' => (string) $numeroOrdem,
+                        'placa' => (string) $placa,
+                        'modulo' => (string) $modelo,
+                        'serial' => (string) $serial,
+                        'key' => $modelo . '|' . $serial,
+                        'display' => $numeroOrdem . ' - ' . $placa .
+                                   ' (Módulo: ' . $modelo . ' / Serial: ' . $serial . ')'
                     ];
-                });
+                })
+                ->filter()
+                ->values();
 
             return response()->json([
                 'status' => 'success',
@@ -69,7 +92,6 @@ class ComandoController extends Controller
                 ], 422);
             }
 
-            // Extrair módulo e serial
             $unidadeKey = explode('|', $request->unidade_key);
             if (count($unidadeKey) !== 2) {
                 return response()->json([
@@ -81,15 +103,25 @@ class ComandoController extends Controller
             [$modulo, $serial] = $unidadeKey;
             $valor = $request->valor;
 
-            // Validar se módulo é suportado
-            if (!in_array($modulo, ['ST215', 'ST300'])) {
+            $moduloObj = Modulo::where('serial', $serial)
+                ->where('modelo', $modulo)
+                ->where('status', 1)
+                ->first();
+
+            if (!$moduloObj) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Módulo não suportado. Use ST215 ou ST300'
+                    'message' => 'Módulo não encontrado ou inativo'
+                ], 404);
+            }
+
+            if (!$moduloObj->suportaComandos()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Módulo não suportado para comandos'
                 ], 400);
             }
 
-            // Verificar se já existe comando pendente para esta unidade e tipo
             $comandoPendente = ComandoPendente::where('ID_Disp', $serial)
                 ->where('comando_nome', 'Hodômetro')
                 ->pendentes()
@@ -102,7 +134,6 @@ class ComandoController extends Controller
                 ], 409);
             }
 
-            // Gerar comando
             $comandoString = "SA200CMD;{$serial};02;SetOdometer={$valor}";
 
             $comando = ComandoPendente::create([
@@ -152,7 +183,6 @@ class ComandoController extends Controller
                 ], 422);
             }
 
-            // Extrair módulo e serial
             $unidadeKey = explode('|', $request->unidade_key);
             if (count($unidadeKey) !== 2) {
                 return response()->json([
@@ -163,7 +193,18 @@ class ComandoController extends Controller
 
             [$modulo, $serial] = $unidadeKey;
 
-            // Verificar se já existe comando pendente para esta unidade e tipo
+            $moduloObj = Modulo::where('serial', $serial)
+                ->where('modelo', $modulo)
+                ->where('status', 1)
+                ->first();
+
+            if (!$moduloObj) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Módulo não encontrado ou inativo'
+                ], 404);
+            }
+
             $comandoPendente = ComandoPendente::where('ID_Disp', $serial)
                 ->where('comando_nome', 'Reboot')
                 ->pendentes()
@@ -176,7 +217,6 @@ class ComandoController extends Controller
                 ], 409);
             }
 
-            // Gerar comando
             $comandoString = "SA200CMD;{$serial};02;Reboot";
 
             $comando = ComandoPendente::create([
@@ -226,7 +266,6 @@ class ComandoController extends Controller
                 ], 422);
             }
 
-            // Extrair módulo e serial
             $unidadeKey = explode('|', $request->unidade_key);
             if (count($unidadeKey) !== 2) {
                 return response()->json([
@@ -238,7 +277,18 @@ class ComandoController extends Controller
             [$modulo, $serial] = $unidadeKey;
             $velocidade = $request->velocidade;
 
-            // Verificar se já existe comando pendente para esta unidade e tipo
+            $moduloObj = Modulo::where('serial', $serial)
+                ->where('modelo', $modulo)
+                ->where('status', 1)
+                ->first();
+
+            if (!$moduloObj) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Módulo não encontrado ou inativo'
+                ], 404);
+            }
+
             $comandoPendente = ComandoPendente::where('ID_Disp', $serial)
                 ->where('comando_nome', 'Velocidade')
                 ->pendentes()
@@ -251,7 +301,6 @@ class ComandoController extends Controller
                 ], 409);
             }
 
-            // Gerar comando
             $comandoString = "SA200SVC;{$serial};02;1;{$velocidade};0;0;0;0;1;1;1;0;0;0;0";
 
             $comando = ComandoPendente::create([
@@ -301,7 +350,6 @@ class ComandoController extends Controller
                 ], 422);
             }
 
-            // Extrair módulo e serial
             $unidadeKey = explode('|', $request->unidade_key);
             if (count($unidadeKey) !== 2) {
                 return response()->json([
@@ -312,7 +360,18 @@ class ComandoController extends Controller
 
             [$modulo, $serial] = $unidadeKey;
 
-            // Verificar se já existe comando pendente para esta unidade e tipo
+            $moduloObj = Modulo::where('serial', $serial)
+                ->where('modelo', $modulo)
+                ->where('status', 1)
+                ->first();
+
+            if (!$moduloObj) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Módulo não encontrado ou inativo'
+                ], 404);
+            }
+
             $comandoPendente = ComandoPendente::where('ID_Disp', $serial)
                 ->where('comando_nome', 'Rede')
                 ->pendentes()
@@ -325,7 +384,6 @@ class ComandoController extends Controller
                 ], 409);
             }
 
-            // Gerar comando de configuração de rede
             $comandoString = "SA200NTW;{$serial};02;0;smart.m2m.vivo.com.br;vivo;vivo;177.87.8.43;7210;200.254.242.19;7210;0;8486";
 
             $comando = ComandoPendente::create([
@@ -365,7 +423,7 @@ class ComandoController extends Controller
             $perPage = $request->get('per_page', 15);
             $serial = $request->get('serial');
 
-            $query = ComandoPendente::with(['user:id_user,nome'])
+            $query = ComandoPendente::with(['user:id,nome', 'modulo:id,serial,modelo'])
                 ->pendentes()
                 ->orderBy('data_solicitacao', 'desc');
 
@@ -397,7 +455,7 @@ class ComandoController extends Controller
             $perPage = $request->get('per_page', 15);
             $serial = $request->get('serial');
 
-            $query = ComandoPendente::with(['user:id_user,nome'])
+            $query = ComandoPendente::with(['user:id,nome', 'modulo:id,serial,modelo'])
                 ->enviados()
                 ->orderBy('data_envio', 'desc');
 
@@ -431,7 +489,7 @@ class ComandoController extends Controller
             $dataInicio = $request->get('data_inicio');
             $dataFim = $request->get('data_fim');
 
-            $query = ComandoHistorico::with(['user:id_user,nome'])
+            $query = ComandoHistorico::with(['user:id,nome', 'modulo:id,serial,modelo'])
                 ->orderBy('data_solicitacao', 'desc');
 
             if ($serial) {
@@ -472,11 +530,11 @@ class ComandoController extends Controller
             $dataInicio = $request->get('data_inicio');
             $dataFim = $request->get('data_fim');
 
-            $query = ComandoResposta::orderBy('data_recebimento', 'desc');
+            $query = ComandoResposta::with('modulo:id,serial,modelo')
+                ->orderBy('data_recebimento', 'desc');
 
             if ($serial) {
-                // Converter serial para inteiro pois o campo id_unidade no banco é int
-                $query->where('id_unidade', (int) $serial);
+                $query->where('id', $serial);
             }
 
             if ($dataInicio) {
@@ -503,17 +561,76 @@ class ComandoController extends Controller
     }
 
     /**
-     * Obter estatísticas de comandos por tipo
+     * Cancelar comando pendente
      */
-    private function getComandosPorTipo(): array
+    public function cancelarComando(Request $request, $nsuComando): JsonResponse
     {
-        return ComandoHistorico::selectRaw('comando_nome, COUNT(*) as total')
-            ->whereDate('data_solicitacao', '>=', now()->subDays(30))
-            ->whereNotNull('comando_nome')
-            ->groupBy('comando_nome')
-            ->orderByDesc('total')
-            ->get()
-            ->pluck('total', 'comando_nome')
-            ->toArray();
+        try {
+            $comando = ComandoPendente::where('nsu_comando', $nsuComando)
+                ->pendentes()
+                ->first();
+
+            if (!$comando) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Comando não encontrado ou já foi enviado'
+                ], 404);
+            }
+
+            $comando->delete();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Comando cancelado com sucesso'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Erro ao cancelar comando: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Estatísticas de comandos
+     */
+    public function estatisticas(Request $request): JsonResponse
+    {
+        try {
+            $dias = $request->get('dias', 30);
+
+            $pendentes = ComandoPendente::pendentes()->count();
+            $enviados = ComandoPendente::enviados()
+                ->naoConfirmados()
+                ->count();
+            $confirmados = ComandoPendente::confirmados()
+                ->where('data_confirmacao', '>=', now()->subDays($dias))
+                ->count();
+
+            $porTipo = ComandoHistorico::selectRaw('comando_nome, COUNT(*) as total')
+                ->where('data_solicitacao', '>=', now()->subDays($dias))
+                ->whereNotNull('comando_nome')
+                ->groupBy('comando_nome')
+                ->orderByDesc('total')
+                ->get();
+
+            return response()->json([
+                'status' => 'success',
+                'data' => [
+                    'pendentes' => $pendentes,
+                    'enviados' => $enviados,
+                    'confirmados' => $confirmados,
+                    'por_tipo' => $porTipo,
+                    'periodo' => "{$dias} dias"
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Erro ao buscar estatísticas: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

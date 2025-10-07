@@ -14,27 +14,41 @@ class ComandoResposta extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'id_unidade',
+        'id',
         'string',
         'data_recebimento'
     ];
 
     protected $casts = [
-        'id_unidade' => 'integer',
+        'id' => 'string',
         'data_recebimento' => 'datetime'
     ];
 
-    /**
-     * Relacionamento com unidade (por serial)
-     */
-    public function unidade()
+    // ========================================
+    // RELACIONAMENTOS
+    // ========================================
+
+    public function modulo()
     {
-        return $this->belongsTo(Unidade::class, 'id_unidade', 'serial');
+        return $this->belongsTo(Modulo::class, 'id', 'serial');
     }
 
-    /**
-     * Scope para filtrar por período
-     */
+    public function unidade()
+    {
+        return $this->hasOneThrough(
+            Unidade::class,
+            Modulo::class,
+            'serial',
+            'id_modulo',
+            'id',
+            'id'
+        );
+    }
+
+    // ========================================
+    // SCOPES
+    // ========================================
+
     public function scopePeriodo($query, $dataInicio, $dataFim = null)
     {
         $query->where('data_recebimento', '>=', $dataInicio);
@@ -46,41 +60,59 @@ class ComandoResposta extends Model
         return $query;
     }
 
-    /**
-     * Scope para filtrar por unidade
-     */
-    public function scopeUnidade($query, $idUnidade)
+    public function scopeSerial($query, $serial)
     {
-        return $query->where('id_unidade', $idUnidade);
+        return $query->where('id', $serial);
     }
 
-    /**
-     * Scope para ordenar por mais recente
-     */
     public function scopeRecentes($query)
     {
         return $query->orderBy('data_recebimento', 'desc');
     }
 
-    /**
-     * Scope para buscar por conteúdo da string
-     */
     public function scopeConteudo($query, $conteudo)
     {
         return $query->where('string', 'like', '%' . $conteudo . '%');
     }
 
-    /**
-     * Verificar se é resposta de comando específico
-     */
-    public function isRespostaComando($tipoComando): bool
+    public function scopeHoje($query)
     {
-        return str_contains($this->string, $tipoComando);
+        return $query->whereDate('data_recebimento', now()->toDateString());
     }
 
-    /**
-     * Obter tipo de resposta baseado no conteúdo
-     */
+    public function scopeUltimos($query, $quantidade = 10)
+    {
+        return $query->orderBy('data_recebimento', 'desc')
+                    ->limit($quantidade);
+    }
+
+    // ========================================
+    // MÉTODOS DE VERIFICAÇÃO
+    // ========================================
+
+    public function isRespostaComando($tipoComando): bool
+    {
+        return str_contains(strtoupper($this->string), strtoupper($tipoComando));
+    }
+
+    public function isSucesso(): bool
+    {
+        $string = strtoupper($this->string);
+        return str_contains($string, 'ACK') || str_contains($string, 'OK');
+    }
+
+    public function isErro(): bool
+    {
+        $string = strtoupper($this->string);
+        return str_contains($string, 'ERROR') ||
+               str_contains($string, 'FAIL') ||
+               str_contains($string, 'NACK');
+    }
+
+    // ========================================
+    // ATTRIBUTES
+    // ========================================
+
     public function getTipoRespostaAttribute(): string
     {
         $string = strtoupper($this->string);
@@ -93,53 +125,74 @@ class ComandoResposta extends Model
             return 'reboot';
         }
 
-        if (str_contains($string, 'SETODOMETER')) {
+        if (str_contains($string, 'SETODOMETER') || str_contains($string, 'ODOMETER')) {
             return 'hodometro';
         }
 
-        if (str_contains($string, 'NETWORK')) {
+        if (str_contains($string, 'NETWORK') || str_contains($string, 'NTW')) {
             return 'rede';
         }
 
-        if (str_contains($string, 'SPEED')) {
+        if (str_contains($string, 'SPEED') || str_contains($string, 'SVC')) {
             return 'velocidade';
         }
 
         return 'generico';
     }
 
-    /**
-     * Formatar string para exibição
-     */
     public function getStringFormatadaAttribute(): string
     {
-        // Remove caracteres especiais e formata para melhor leitura
         return trim(preg_replace('/[^\x20-\x7E]/', '', $this->string));
     }
 
-    /**
-     * Verificar se é resposta de sucesso
-     */
-    public function isSucesso(): bool
-    {
-        $string = strtoupper($this->string);
-        return str_contains($string, 'ACK') || str_contains($string, 'OK');
-    }
-
-    /**
-     * Verificar se é resposta de erro
-     */
-    public function isErro(): bool
-    {
-        $string = strtoupper($this->string);
-        return str_contains($string, 'ERROR') || str_contains($string, 'FAIL');
-    }
-
-    /**
-     * Obter idade da resposta em minutos
-     */
     public function getIdadeMinutosAttribute(): int
     {
         return now()->diffInMinutes($this->data_recebimento);
+    }
+
+    public function getIdadeFormatadaAttribute(): string
+    {
+        $minutos = $this->idade_minutos;
+
+        if ($minutos < 1) {
+            return 'Agora mesmo';
+        }
+
+        if ($minutos < 60) {
+            return "Há {$minutos} min";
+        }
+
+        if ($minutos < 1440) { // menos de 24h
+            $horas = floor($minutos / 60);
+            return "Há {$horas}h";
+        }
+
+        $dias = floor($minutos / 1440);
+        return "Há {$dias} dia" . ($dias > 1 ? 's' : '');
+    }
+
+    public function getStatusCorAttribute(): string
+    {
+        if ($this->isSucesso()) {
+            return 'success';
+        }
+
+        if ($this->isErro()) {
+            return 'danger';
+        }
+
+        return 'info';
+    }
+
+    public function getIconeAttribute(): string
+    {
+        return match($this->tipo_resposta) {
+            'confirmacao' => 'check-circle',
+            'reboot' => 'refresh-cw',
+            'hodometro' => 'gauge',
+            'rede' => 'wifi',
+            'velocidade' => 'activity',
+            default => 'message-square'
+        };
     }
 }

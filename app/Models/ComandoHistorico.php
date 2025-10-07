@@ -25,49 +25,53 @@ class ComandoHistorico extends Model
     ];
 
     protected $casts = [
-        'ID_Disp' => 'integer',
         'data_solicitacao' => 'datetime',
         'data_envio' => 'datetime',
         'data_confirmacao' => 'datetime',
         'usuario' => 'integer'
     ];
 
-    /**
-     * Relacionamento com usuário
-     */
+    // ========================================
+    // RELACIONAMENTOS
+    // ========================================
+
     public function user()
     {
-        return $this->belongsTo(User::class, 'usuario', 'id_user');
+        return $this->belongsTo(User::class, 'usuario', 'id');
     }
 
-    /**
-     * Relacionamento com unidade (por serial)
-     */
+    public function modulo()
+    {
+        return $this->belongsTo(Modulo::class, 'ID_Disp', 'serial');
+    }
+
     public function unidade()
     {
-        return $this->belongsTo(Unidade::class, 'ID_Disp', 'serial');
+        return $this->hasOneThrough(
+            Unidade::class,
+            Modulo::class,
+            'serial',
+            'id_modulo',
+            'ID_Disp',
+            'id'
+        );
     }
 
-    /**
-     * Scope para comandos confirmados
-     */
+    // ========================================
+    // SCOPES
+    // ========================================
+
     public function scopeConfirmados($query)
     {
         return $query->whereNotNull('data_confirmacao');
     }
 
-    /**
-     * Scope para comandos enviados mas não confirmados
-     */
     public function scopeNaoConfirmados($query)
     {
         return $query->whereNotNull('data_envio')
                     ->whereNull('data_confirmacao');
     }
 
-    /**
-     * Scope para filtrar por período
-     */
     public function scopePeriodo($query, $dataInicio, $dataFim = null)
     {
         $query->where('data_solicitacao', '>=', $dataInicio);
@@ -79,17 +83,44 @@ class ComandoHistorico extends Model
         return $query;
     }
 
-    /**
-     * Scope para filtrar por usuário
-     */
     public function scopeUsuario($query, $userId)
     {
         return $query->where('usuario', $userId);
     }
 
-    /**
-     * Obter status do comando
-     */
+    public function scopeSerial($query, $serial)
+    {
+        return $query->where('ID_Disp', $serial);
+    }
+
+    public function scopeTipo($query, $tipo)
+    {
+        return $query->where('comando_nome', $tipo);
+    }
+
+    public function scopeRecentes($query, $dias = 30)
+    {
+        return $query->whereDate('data_solicitacao', '>=', now()->subDays($dias));
+    }
+
+    // ========================================
+    // MÉTODOS AUXILIARES
+    // ========================================
+
+    public function isSucesso(): bool
+    {
+        return !is_null($this->data_confirmacao);
+    }
+
+    public function isFalha(): bool
+    {
+        return !is_null($this->data_envio) && is_null($this->data_confirmacao);
+    }
+
+    // ========================================
+    // ATTRIBUTES
+    // ========================================
+
     public function getStatusAttribute(): string
     {
         if ($this->data_confirmacao) {
@@ -101,9 +132,16 @@ class ComandoHistorico extends Model
         return 'pendente';
     }
 
-    /**
-     * Obter tempo de resposta em minutos
-     */
+    public function getStatusCorAttribute(): string
+    {
+        return match($this->status) {
+            'confirmado' => 'success',
+            'enviado' => 'warning',
+            'pendente' => 'info',
+            default => 'secondary'
+        };
+    }
+
     public function getTempoRespostaAttribute(): ?int
     {
         if (!$this->data_confirmacao || !$this->data_solicitacao) {
@@ -113,9 +151,6 @@ class ComandoHistorico extends Model
         return $this->data_confirmacao->diffInMinutes($this->data_solicitacao);
     }
 
-    /**
-     * Obter tempo para envio em minutos
-     */
     public function getTempoEnvioAttribute(): ?int
     {
         if (!$this->data_envio || !$this->data_solicitacao) {
@@ -125,11 +160,39 @@ class ComandoHistorico extends Model
         return $this->data_envio->diffInMinutes($this->data_solicitacao);
     }
 
-    /**
-     * Verificar se comando foi bem-sucedido
-     */
-    public function isSucesso(): bool
+    public function getTempoRespostaFormatadoAttribute(): ?string
     {
-        return !is_null($this->data_confirmacao);
+        $minutos = $this->tempo_resposta;
+
+        if ($minutos === null) {
+            return null;
+        }
+
+        if ($minutos < 60) {
+            return "{$minutos}min";
+        }
+
+        $horas = floor($minutos / 60);
+        $mins = $minutos % 60;
+
+        return "{$horas}h {$mins}min";
+    }
+
+    public function getTempoEnvioFormatadoAttribute(): ?string
+    {
+        $minutos = $this->tempo_envio;
+
+        if ($minutos === null) {
+            return null;
+        }
+
+        if ($minutos < 60) {
+            return "{$minutos}min";
+        }
+
+        $horas = floor($minutos / 60);
+        $mins = $minutos % 60;
+
+        return "{$horas}h {$mins}min";
     }
 }

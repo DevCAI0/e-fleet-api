@@ -14,29 +14,24 @@ class ChecklistVeicular extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'id_unidade',
+        'id',
         'id_rpr',
+        'id_unidade',
         'id_user_analise',
         'data_analise',
         'status_geral',
-
-        // Módulo de Rastreamento
         'modulo_rastreador',
         'modulo_rastreador_obs',
         'sirene',
         'sirene_obs',
         'leitor_ibutton',
         'leitor_ibutton_obs',
-
-        // Acessórios
         'camera',
         'camera_obs',
         'tomada_usb',
         'tomada_usb_obs',
         'wifi',
         'wifi_obs',
-
-        // Sensores
         'sensor_velocidade',
         'sensor_velocidade_obs',
         'sensor_rpm',
@@ -45,14 +40,10 @@ class ChecklistVeicular extends Model
         'antena_gps_obs',
         'antena_gprs',
         'antena_gprs_obs',
-
-        // Instalação
         'instalacao_eletrica',
         'instalacao_eletrica_obs',
         'fixacao_equipamento',
         'fixacao_equipamento_obs',
-
-        // Conclusão
         'observacoes_gerais',
         'data_prevista_conclusao',
         'finalizado',
@@ -65,71 +56,49 @@ class ChecklistVeicular extends Model
         'data_prevista_conclusao' => 'date',
         'data_finalizacao' => 'datetime',
         'finalizado' => 'boolean',
-        'id_unidade' => 'integer',
+        'id' => 'integer',
         'id_rpr' => 'integer',
+        'id_unidade' => 'integer',  // ← ADICIONE ESTE CAST TAMBÉM
         'id_user_analise' => 'integer',
         'id_user_finalizacao' => 'integer'
     ];
 
-    /**
-     * Relacionamento com Unidade
-     */
     public function unidade()
     {
-        return $this->belongsTo(Unidade::class, 'id_unidade', 'id_unidade');
+        // CORRIGIDO: id_unidade é a foreign key em checklist_veicular
+        return $this->belongsTo(Unidade::class, 'id_unidade', 'id');
     }
 
-    /**
-     * Relacionamento com RPR
-     */
     public function rpr()
     {
         return $this->belongsTo(Rpr::class, 'id_rpr', 'id');
     }
 
-    /**
-     * Relacionamento com Usuário de Análise
-     */
     public function usuarioAnalise()
     {
-        return $this->belongsTo(User::class, 'id_user_analise', 'id_user');
+        return $this->belongsTo(User::class, 'id_user_analise', 'id');
     }
 
-    /**
-     * Relacionamento com Usuário de Finalização
-     */
     public function usuarioFinalizacao()
     {
-        return $this->belongsTo(User::class, 'id_user_finalizacao', 'id_user');
+        return $this->belongsTo(User::class, 'id_user_finalizacao', 'id');
     }
 
-    /**
-     * Scope para checklists pendentes
-     */
     public function scopePendentes($query)
     {
         return $query->where('finalizado', false);
     }
 
-    /**
-     * Scope para checklists finalizados
-     */
     public function scopeFinalizados($query)
     {
         return $query->where('finalizado', true);
     }
 
-    /**
-     * Verificar se está aprovado
-     */
     public function isAprovado(): bool
     {
         return $this->status_geral === 'APROVADO';
     }
 
-    /**
-     * Obter itens com problema
-     */
     public function getItensComProblema(): array
     {
         $problemas = [];
@@ -162,9 +131,6 @@ class ChecklistVeicular extends Model
         return $problemas;
     }
 
-    /**
-     * Calcular percentual de itens OK
-     */
     public function getPercentualOk(): float
     {
         $campos = [
