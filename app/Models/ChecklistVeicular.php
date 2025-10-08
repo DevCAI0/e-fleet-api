@@ -14,9 +14,8 @@ class ChecklistVeicular extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'id',
-        'id_rpr',
         'id_unidade',
+        'id_rpr',
         'id_user_analise',
         'data_analise',
         'status_geral',
@@ -52,20 +51,22 @@ class ChecklistVeicular extends Model
     ];
 
     protected $casts = [
+        'id_unidade' => 'integer',
+        'id_rpr' => 'integer',
+        'id_user_analise' => 'integer',
+        'id_user_finalizacao' => 'integer',
         'data_analise' => 'datetime',
         'data_prevista_conclusao' => 'date',
         'data_finalizacao' => 'datetime',
-        'finalizado' => 'boolean',
-        'id' => 'integer',
-        'id_rpr' => 'integer',
-        'id_unidade' => 'integer',  // ← ADICIONE ESTE CAST TAMBÉM
-        'id_user_analise' => 'integer',
-        'id_user_finalizacao' => 'integer'
+        'finalizado' => 'boolean'
     ];
+
+    // ========================================
+    // RELACIONAMENTOS
+    // ========================================
 
     public function unidade()
     {
-        // CORRIGIDO: id_unidade é a foreign key em checklist_veicular
         return $this->belongsTo(Unidade::class, 'id_unidade', 'id');
     }
 
@@ -84,7 +85,11 @@ class ChecklistVeicular extends Model
         return $this->belongsTo(User::class, 'id_user_finalizacao', 'id');
     }
 
-    public function scopePendentes($query)
+    // ========================================
+    // SCOPES
+    // ========================================
+
+    public function scopeAtivos($query)
     {
         return $query->where('finalizado', false);
     }
@@ -94,69 +99,85 @@ class ChecklistVeicular extends Model
         return $query->where('finalizado', true);
     }
 
-    public function isAprovado(): bool
+    public function scopeStatus($query, $status)
     {
-        return $this->status_geral === 'APROVADO';
+        return $query->where('status_geral', $status);
+    }
+
+    // ========================================
+    // MÉTODOS
+    // ========================================
+
+    public function getPercentualOk(): float
+    {
+        $campos = [
+            'modulo_rastreador', 'sirene', 'leitor_ibutton', 'camera',
+            'tomada_usb', 'wifi', 'sensor_velocidade', 'sensor_rpm',
+            'antena_gps', 'antena_gprs', 'instalacao_eletrica', 'fixacao_equipamento'
+        ];
+
+        $total = 0;
+        $ok = 0;
+
+        foreach ($campos as $campo) {
+            if ($this->$campo && $this->$campo !== 'NAO_VERIFICADO') {
+                $total++;
+                if ($this->$campo === 'OK') {
+                    $ok++;
+                }
+            }
+        }
+
+        return $total > 0 ? ($ok / $total) * 100 : 0;
     }
 
     public function getItensComProblema(): array
     {
-        $problemas = [];
-
-        $itens = [
+        $campos = [
             'modulo_rastreador' => 'Módulo Rastreador',
             'sirene' => 'Sirene',
             'leitor_ibutton' => 'Leitor iButton',
             'camera' => 'Câmera',
             'tomada_usb' => 'Tomada USB',
             'wifi' => 'WiFi',
-            'sensor_velocidade' => 'Sensor Velocidade',
+            'sensor_velocidade' => 'Sensor de Velocidade',
             'sensor_rpm' => 'Sensor RPM',
             'antena_gps' => 'Antena GPS',
             'antena_gprs' => 'Antena GPRS',
             'instalacao_eletrica' => 'Instalação Elétrica',
-            'fixacao_equipamento' => 'Fixação Equipamento'
+            'fixacao_equipamento' => 'Fixação do Equipamento'
         ];
 
-        foreach ($itens as $campo => $nome) {
+        $itensComProblema = [];
+
+        foreach ($campos as $campo => $nome) {
             if ($this->$campo === 'PROBLEMA') {
-                $problemas[] = [
+                $itensComProblema[] = [
                     'item' => $nome,
-                    'campo' => $campo,
                     'observacao' => $this->{$campo . '_obs'}
                 ];
             }
         }
 
-        return $problemas;
+        return $itensComProblema;
     }
 
-    public function getPercentualOk(): float
+    public function getTotalItensVerificados(): int
     {
         $campos = [
-            'modulo_rastreador',
-            'sirene',
-            'leitor_ibutton',
-            'camera',
-            'tomada_usb',
-            'wifi',
-            'sensor_velocidade',
-            'sensor_rpm',
-            'antena_gps',
-            'antena_gprs',
-            'instalacao_eletrica',
-            'fixacao_equipamento'
+            'modulo_rastreador', 'sirene', 'leitor_ibutton', 'camera',
+            'tomada_usb', 'wifi', 'sensor_velocidade', 'sensor_rpm',
+            'antena_gps', 'antena_gprs', 'instalacao_eletrica', 'fixacao_equipamento'
         ];
 
-        $total = count($campos);
-        $ok = 0;
+        $total = 0;
 
         foreach ($campos as $campo) {
-            if ($this->$campo === 'OK') {
-                $ok++;
+            if ($this->$campo && $this->$campo !== 'NAO_VERIFICADO') {
+                $total++;
             }
         }
 
-        return ($ok / $total) * 100;
+        return $total;
     }
 }
