@@ -14,7 +14,7 @@ class Rpr extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'id_unidade',  // Foreign key para unidades.id
+        'id_unidade',
         'id_user',
         'status_t1',
         'status_t2',
@@ -52,7 +52,6 @@ class Rpr extends Model
 
     public function unidade()
     {
-        // id_unidade (coluna em rpr) -> id (coluna em unidades)
         return $this->belongsTo(Unidade::class, 'id_unidade', 'id');
     }
 
@@ -71,6 +70,11 @@ class Rpr extends Model
         return $this->hasOne(ChecklistVeicular::class, 'id_rpr', 'id')
                     ->where('finalizado', false)
                     ->latest('data_analise');
+    }
+
+    public function veiculosOS()
+    {
+        return $this->hasMany(OrdemServicoVeiculo::class, 'id_rpr');
     }
 
     // ========================================
@@ -94,6 +98,39 @@ class Rpr extends Model
         return $this->status_t7 === 'S';
     }
 
+    /**
+     * NOVO MÉTODO: Retorna problemas ativos usando os dados das tabelas
+     */
+    public function getProblemasAtivosComDadosBanco(): array
+    {
+        $problemas = [];
+
+        // Carrega todos os tipos ativos do banco
+        $tipos = RprTipo::ativos()->ordenados()->get();
+
+        foreach ($tipos as $tipo) {
+            $numeroTipo = $tipo->numero;
+            $statusField = "status_t{$numeroTipo}";
+            $correcaoField = "cor_t{$numeroTipo}";
+
+            // Verifica se o campo existe e se está marcado como 'S'
+            if (isset($this->$statusField) && $this->$statusField === 'S') {
+                $problemas[] = [
+                    'tipo' => $numeroTipo,
+                    'titulo' => $tipo->titulo,
+                    'descricao' => $tipo->descricao,
+                    'correcao' => $this->$correcaoField ?? '',
+                    'cor_badge' => $tipo->cor_badge
+                ];
+            }
+        }
+
+        return $problemas;
+    }
+
+    /**
+     * MÉTODO ORIGINAL MANTIDO (retrocompatibilidade)
+     */
     public function getProblemasAtivos(): array
     {
         $problemas = [];
@@ -124,10 +161,5 @@ class Rpr extends Model
         }
 
         return $problemas;
-    }
-
-    public function veiculosOS()
-    {
-        return $this->hasMany(OrdemServicoVeiculo::class, 'id_rpr');
     }
 }

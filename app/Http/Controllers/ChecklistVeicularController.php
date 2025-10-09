@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use App\Models\ChecklistVeicular;
 use App\Models\Rpr;
 use App\Models\Unidade;
@@ -10,7 +9,7 @@ use App\Models\OrdemServicoVeiculo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 class ChecklistVeicularController extends Controller
@@ -27,9 +26,7 @@ class ChecklistVeicularController extends Controller
                 'rpr',
                 'ordemServico:id,numero_os,status,prioridade'
             ])
-            ->whereHas('ordemServico', function($q) {
-                $q->where('status', 'CONCLUIDA');
-            })
+            ->whereHas('ordemServico', fn($q) => $q->where('status', 'CONCLUIDA'))
             ->where('status_veiculo', 'CONCLUIDO');
         } else {
             $query = OrdemServicoVeiculo::with([
@@ -39,16 +36,12 @@ class ChecklistVeicularController extends Controller
                 'rpr',
                 'ordemServico:id,numero_os,status,prioridade'
             ])
-            ->whereHas('ordemServico', function($q) {
-                $q->whereIn('status', ['ABERTA', 'EM_ANDAMENTO']);
-            })
+            ->whereHas('ordemServico', fn($q) => $q->whereIn('status', ['ABERTA', 'EM_ANDAMENTO']))
             ->whereIn('status_veiculo', ['PENDENTE', 'EM_MANUTENCAO']);
         }
 
         if ($request->filled('numero_ordem')) {
-            $query->whereHas('unidade', function($q) use ($request) {
-                $q->where('numero_ordem', 'LIKE', '%' . $request->numero_ordem . '%');
-            });
+            $query->whereHas('unidade', fn($q) => $q->where('numero_ordem', 'LIKE', '%' . $request->numero_ordem . '%'));
         }
 
         $perPage = $request->get('per_page', 100);
@@ -59,7 +52,7 @@ class ChecklistVeicularController extends Controller
             'data' => $osVeiculos->map(function($osVeiculo) {
                 $problemas = [];
                 if ($osVeiculo->rpr) {
-                    $problemas = $osVeiculo->rpr->getProblemasAtivos();
+                    $problemas = $osVeiculo->rpr->getProblemasAtivosComDadosBanco();
                 }
 
                 $temChecklist = false;
@@ -79,6 +72,7 @@ class ChecklistVeicularController extends Controller
                         'placa' => $osVeiculo->unidade->placa,
                         'serial' => $osVeiculo->unidade->modulo?->serial,
                         'modelo' => $osVeiculo->unidade->modulo?->modelo,
+                        'key' => $osVeiculo->unidade->id,
                     ],
                     'problemas' => $problemas,
                     'tem_checklist_ativo' => $temChecklist,
@@ -102,216 +96,135 @@ class ChecklistVeicularController extends Controller
 
     public function statusVeiculo($id_unidade)
     {
-        try {
-            $unidade = Unidade::with([
-                'modulo:id,serial,modelo',
-                'empresa:id,sigla'
-            ])->findOrFail($id_unidade);
+        $unidade = Unidade::with([
+            'modulo:id,serial,modelo',
+            'empresa:id,sigla'
+        ])->findOrFail($id_unidade);
 
-            $rpr = Rpr::where('id_unidade', $id_unidade)
-                ->where(function($q) {
-                    $q->where('status_t1', 'S')
-                      ->orWhere('status_t2', 'S')
-                      ->orWhere('status_t3', 'S')
-                      ->orWhere('status_t4', 'S')
-                      ->orWhere('status_t5', 'S')
-                      ->orWhere('status_t9', 'S')
-                      ->orWhere('status_t10', 'S');
-                })
-                ->with(['usuario:id,nome'])
-                ->latest('data_cadastro')
-                ->first();
-
-            $checklistAtivo = null;
-            if ($rpr) {
-                $checklistAtivo = ChecklistVeicular::where('id_rpr', $rpr->id)
-                    ->latest('data_analise')
-                    ->first();
-            }
-
-            $osVeiculo = OrdemServicoVeiculo::with(['ordemServico' => function($q) {
-                $q->select('id', 'numero_os', 'status', 'prioridade', 'data_abertura', 'data_prevista_conclusao');
-            }])
-            ->where('id_unidade', $id_unidade)
-            ->whereHas('ordemServico', function($q) {
-                $q->whereIn('status', ['ABERTA', 'EM_ANDAMENTO']);
+        $rpr = Rpr::where('id_unidade', $id_unidade)
+            ->where(function($q) {
+                $q->where('status_t1', 'S')
+                  ->orWhere('status_t2', 'S')
+                  ->orWhere('status_t3', 'S')
+                  ->orWhere('status_t4', 'S')
+                  ->orWhere('status_t5', 'S')
+                  ->orWhere('status_t9', 'S')
+                  ->orWhere('status_t10', 'S');
             })
+            ->with(['usuario:id,nome'])
+            ->latest('data_cadastro')
+            ->first();
+
+        $checklistAtivo = null;
+        if ($rpr) {
+            $checklistAtivo = ChecklistVeicular::where('id_rpr', $rpr->id)
+                ->where('finalizado', false)
+                ->with('tecnicoResponsavel:id,nome')
+                ->latest('data_analise')
+                ->first();
+        }
+
+        $osVeiculo = OrdemServicoVeiculo::with(['ordemServico'])
+            ->where('id_unidade', $id_unidade)
+            ->whereHas('ordemServico', fn($q) => $q->whereIn('status', ['ABERTA', 'EM_ANDAMENTO']))
             ->latest('id')
             ->first();
 
-            $response = [
-                'success' => true,
-                'unidade' => [
-                    'id' => $unidade->id,
-                    'numero_ordem' => $unidade->numero_ordem_formatado,
-                    'placa' => $unidade->placa,
-                    'serial' => $unidade->modulo?->serial,
-                    'modelo' => $unidade->modulo?->modelo,
-                    'status' => $unidade->status,
-                ],
-                'rpr' => null,
-                'checklist_ativo' => null,
-                'ordem_servico' => null,
-                'tem_checklist_ativo' => false,
+        $response = [
+            'success' => true,
+            'unidade' => [
+                'id' => $unidade->id,
+                'numero_ordem' => $unidade->numero_ordem_formatado,
+                'placa' => $unidade->placa,
+                'serial' => $unidade->modulo?->serial,
+                'modelo' => $unidade->modulo?->modelo,
+                'status' => $unidade->status,
+                'key' => $unidade->id,
+            ],
+            'rpr' => null,
+            'checklist_ativo' => null,
+            'ordem_servico' => null,
+            'tem_checklist_ativo' => false,
+        ];
+
+        if ($rpr) {
+            $response['rpr'] = [
+                'id' => $rpr->id,
+                'data_cadastro' => $rpr->data_cadastro->format('Y-m-d H:i:s'),
+                'problemas' => $rpr->getProblemasAtivosComDadosBanco(),
+                'usuario' => $rpr->usuario ? $rpr->usuario->nome : null,
+            ];
+        }
+
+        if ($checklistAtivo) {
+            $campos = [
+                'modulo_rastreador',
+                'sirene',
+                'leitor_ibutton',
+                'camera',
+                'tomada_usb',
+                'wifi'
             ];
 
-            if ($rpr) {
-                $response['rpr'] = [
-                    'id' => $rpr->id,
-                    'data_cadastro' => $rpr->data_cadastro->format('Y-m-d H:i:s'),
-                    'problemas' => $rpr->getProblemasAtivos(),
-                    'usuario' => $rpr->usuario ? $rpr->usuario->nome : null,
-                ];
-            }
+            $totalItens = 0;
+            $itensResolvidos = 0;
 
-            if ($checklistAtivo) {
-                $itensResolvidos = 0;
-                $totalItens = 0;
-
-                $campos = [
-                    'modulo_rastreador', 'sirene', 'leitor_ibutton', 'camera',
-                    'tomada_usb', 'wifi', 'sensor_velocidade', 'sensor_rpm',
-                    'antena_gps', 'antena_gprs', 'instalacao_eletrica', 'fixacao_equipamento'
-                ];
-
-                $itensComProblema = [];
-
-                foreach ($campos as $campo) {
-                    if ($checklistAtivo->$campo && $checklistAtivo->$campo !== 'NAO_VERIFICADO') {
-                        $totalItens++;
-
-                        if (in_array($checklistAtivo->$campo, ['OK', 'PROBLEMA', 'NAO_INSTALADO'])) {
-                            $itensResolvidos++;
-
-                            if ($checklistAtivo->$campo === 'PROBLEMA') {
-                                $itensComProblema[] = [
-                                    'item' => ucwords(str_replace('_', ' ', $campo)),
-                                    'status' => $checklistAtivo->$campo,
-                                    'observacao' => $checklistAtivo->{$campo . '_obs'},
-                                ];
-                            }
-                        }
+            foreach ($campos as $campo) {
+                if ($checklistAtivo->$campo && $checklistAtivo->$campo !== 'NAO_VERIFICADO') {
+                    $totalItens++;
+                    if (in_array($checklistAtivo->$campo, ['OK', 'PROBLEMA', 'NAO_INSTALADO'])) {
+                        $itensResolvidos++;
                     }
                 }
-
-                $progresso = $totalItens > 0 ? ($itensResolvidos / $totalItens) * 100 : 0;
-
-                $response['checklist_ativo'] = [
-                    'id' => $checklistAtivo->id,
-                    'id_rpr' => $checklistAtivo->id_rpr,
-                    'status' => $checklistAtivo->status_geral,
-                    'data_analise' => $checklistAtivo->data_analise ? $checklistAtivo->data_analise->format('Y-m-d H:i:s') : null,
-                    'data_prevista' => $checklistAtivo->data_prevista_conclusao ? $checklistAtivo->data_prevista_conclusao->format('Y-m-d H:i:s') : null,
-                    'finalizado' => (bool) $checklistAtivo->finalizado,
-                    'data_finalizacao' => $checklistAtivo->data_finalizacao ? $checklistAtivo->data_finalizacao->format('Y-m-d H:i:s') : null,
-                    'itens_com_problema' => $itensComProblema,
-                    'total_itens' => $totalItens,
-                    'itens_resolvidos' => $itensResolvidos,
-                    'progresso' => round($progresso, 2),
-                ];
-
-                $response['tem_checklist_ativo'] = true;
             }
 
-            if ($osVeiculo) {
-                $response['ordem_servico'] = [
-                    'id' => $osVeiculo->ordemServico->id,
-                    'numero_os' => $osVeiculo->ordemServico->numero_os,
-                    'status' => $osVeiculo->ordemServico->status,
-                    'prioridade' => $osVeiculo->ordemServico->prioridade,
-                    'data_abertura' => $osVeiculo->ordemServico->data_abertura->format('Y-m-d H:i:s'),
-                    'data_prevista' => $osVeiculo->ordemServico->data_prevista_conclusao?->format('Y-m-d'),
-                    'status_veiculo' => $osVeiculo->status_veiculo,
-                ];
-            }
+            $response['checklist_ativo'] = [
+                'id' => $checklistAtivo->id,
+                'id_rpr' => $checklistAtivo->id_rpr,
+                'status' => $checklistAtivo->status_geral,
+                'data_analise' => $checklistAtivo->data_analise->format('Y-m-d H:i:s'),
+                'data_prevista' => $checklistAtivo->data_prevista_conclusao?->format('Y-m-d'),
+                'finalizado' => $checklistAtivo->finalizado,
+                'itens_com_problema' => $checklistAtivo->getItensComProblema(),
+                'total_itens' => $totalItens,
+                'itens_resolvidos' => $itensResolvidos,
+                'progresso' => round($checklistAtivo->getPercentualConclusao(), 2),
+                'tecnico_responsavel' => $checklistAtivo->tecnicoResponsavel?->nome,
+                'pertence_ao_usuario' => $checklistAtivo->pertenceAoTecnico(Auth::id()),
+            ];
 
-            return response()->json($response);
-
-        } catch (\Exception $e) {
-            Log::error('Erro ao obter status do veículo: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Erro ao obter status: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    public function index(Request $request)
-    {
-        $query = ChecklistVeicular::with([
-            'unidade:id,numero_ordem,placa,id_modulo,id_empresa',
-            'unidade.modulo:id,serial',
-            'unidade.empresa:id,sigla',
-            'usuarioAnalise:id,nome'
-        ]);
-
-        if ($request->filled('status')) {
-            $query->where('status_geral', $request->status);
+            $response['tem_checklist_ativo'] = true;
         }
 
-        if ($request->filled('finalizado')) {
-            $query->where('finalizado', $request->boolean('finalizado'));
+        if ($osVeiculo) {
+            $response['ordem_servico'] = [
+                'id' => $osVeiculo->ordemServico->id,
+                'numero_os' => $osVeiculo->ordemServico->numero_os,
+                'status' => $osVeiculo->ordemServico->status,
+                'prioridade' => $osVeiculo->ordemServico->prioridade,
+                'status_veiculo' => $osVeiculo->status_veiculo,
+            ];
         }
 
-        if ($request->filled('data_inicio')) {
-            $query->whereDate('data_analise', '>=', $request->data_inicio);
-        }
-
-        if ($request->filled('data_fim')) {
-            $query->whereDate('data_analise', '<=', $request->data_fim);
-        }
-
-        if ($request->filled('id_unidade')) {
-            $query->where('id_unidade', $request->id_unidade);
-        }
-
-        $perPage = $request->get('per_page', 15);
-        $checklists = $query->latest('data_analise')->paginate($perPage);
-
-        return response()->json([
-            'success' => true,
-            'data' => $checklists->map(function($checklist) {
-                return [
-                    'id' => $checklist->id,
-                    'unidade' => [
-                        'id' => $checklist->unidade->id,
-                        'numero_ordem' => $checklist->unidade->numero_ordem_formatado,
-                        'placa' => $checklist->unidade->placa,
-                        'serial' => $checklist->unidade->modulo?->serial,
-                    ],
-                    'status_geral' => $checklist->status_geral,
-                    'finalizado' => $checklist->finalizado,
-                    'data_analise' => $checklist->data_analise->format('Y-m-d H:i:s'),
-                    'data_prevista_conclusao' => $checklist->data_prevista_conclusao?->format('Y-m-d'),
-                    'percentual_ok' => round($checklist->getPercentualOk(), 2),
-                    'usuario_analise' => $checklist->usuarioAnalise?->nome ?? null,
-                ];
-            }),
-            'pagination' => [
-                'total' => $checklists->total(),
-                'per_page' => $checklists->perPage(),
-                'current_page' => $checklists->currentPage(),
-                'last_page' => $checklists->lastPage(),
-            ]
-        ]);
+        return response()->json($response);
     }
 
     public function show($id)
     {
         $checklist = ChecklistVeicular::with([
-            'unidade:id,numero_ordem,placa,id_modulo,id_empresa',
+            'unidade:id,numero_ordem,placa,id_modulo',
             'unidade.modulo:id,serial',
-            'unidade.empresa:id,sigla',
             'rpr',
             'usuarioAnalise:id,nome',
+            'tecnicoResponsavel:id,nome',
             'usuarioFinalizacao:id,nome'
-        ])->find($id);
+        ])->findOrFail($id);
 
-        if (!$checklist) {
+        if (!$checklist->pertenceAoTecnico(Auth::id()) && !$checklist->finalizado) {
             return response()->json([
                 'success' => false,
-                'message' => 'Checklist não encontrado'
-            ], 404);
+                'message' => 'Este checklist pertence a outro técnico'
+            ], 403);
         }
 
         return response()->json([
@@ -328,9 +241,7 @@ class ChecklistVeicularController extends Controller
                 ],
                 'status_geral' => $checklist->status_geral,
                 'data_analise' => $checklist->data_analise->format('Y-m-d H:i:s'),
-                'data_prevista_conclusao' => $checklist->data_prevista_conclusao?->format('Y-m-d'),
                 'finalizado' => $checklist->finalizado,
-                'data_finalizacao' => $checklist->data_finalizacao?->format('Y-m-d H:i:s'),
                 'itens' => [
                     'modulo_rastreador' => [
                         'status' => $checklist->modulo_rastreador,
@@ -356,36 +267,12 @@ class ChecklistVeicularController extends Controller
                         'status' => $checklist->wifi,
                         'observacao' => $checklist->wifi_obs,
                     ],
-                    'sensor_velocidade' => [
-                        'status' => $checklist->sensor_velocidade,
-                        'observacao' => $checklist->sensor_velocidade_obs,
-                    ],
-                   'sensor_rpm' => [
-                        'status' => $checklist->sensor_rpm,
-                        'observacao' => $checklist->sensor_rpm_obs,
-                    ],
-                    'antena_gps' => [
-                        'status' => $checklist->antena_gps,
-                        'observacao' => $checklist->antena_gps_obs,
-                    ],
-                    'antena_gprs' => [
-                        'status' => $checklist->antena_gprs,
-                        'observacao' => $checklist->antena_gprs_obs,
-                    ],
-                    'instalacao_eletrica' => [
-                        'status' => $checklist->instalacao_eletrica,
-                        'observacao' => $checklist->instalacao_eletrica_obs,
-                    ],
-                    'fixacao_equipamento' => [
-                        'status' => $checklist->fixacao_equipamento,
-                        'observacao' => $checklist->fixacao_equipamento_obs,
-                    ],
                 ],
+                'fotos' => $checklist->fotos ?? [],
                 'observacoes_gerais' => $checklist->observacoes_gerais,
-                'percentual_ok' => round($checklist->getPercentualOk(), 2),
+                'progresso' => round($checklist->getPercentualConclusao(), 2),
                 'itens_com_problema' => $checklist->getItensComProblema(),
-                'usuario_analise' => $checklist->usuarioAnalise?->nome ?? null,
-                'usuario_finalizacao' => $checklist->usuarioFinalizacao?->nome ?? null,
+                'tecnico_responsavel' => $checklist->tecnicoResponsavel?->nome,
             ]
         ]);
     }
@@ -412,15 +299,23 @@ class ChecklistVeicularController extends Controller
             ->first();
 
         if ($checklistExistente) {
+            if (!$checklistExistente->pertenceAoTecnico(Auth::id())) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Já existe um checklist ativo para este veículo com outro técnico'
+                ], 409);
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => 'Já existe um checklist pendente para este veículo',
+                'message' => 'Já existe um checklist ativo para este veículo',
                 'checklist_id' => $checklistExistente->id
             ], 409);
         }
 
         $data = $validator->validated();
         $data['id_user_analise'] = Auth::id();
+        $data['id_tecnico_responsavel'] = Auth::id();
         $data['data_analise'] = now();
 
         $checklist = ChecklistVeicular::create($data);
@@ -432,77 +327,37 @@ class ChecklistVeicularController extends Controller
                 'id' => $checklist->id,
                 'id_unidade' => $checklist->id_unidade,
                 'status_geral' => $checklist->status_geral,
-                'data_analise' => $checklist->data_analise->format('Y-m-d H:i:s'),
             ]
         ], 201);
     }
 
-    public function update(Request $request, $id)
+    public function atualizarItem(Request $request, $id)
     {
-        $checklist = ChecklistVeicular::find($id);
-
-        if (!$checklist) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Checklist não encontrado'
-            ], 404);
-        }
+        $checklist = ChecklistVeicular::findOrFail($id);
 
         if ($checklist->finalizado) {
             return response()->json([
                 'success' => false,
-                'message' => 'Checklist já finalizado não pode ser editado'
+                'message' => 'Checklist já finalizado'
+            ], 403);
+        }
+
+        if (!$checklist->pertenceAoTecnico(Auth::id())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Este checklist pertence a outro técnico'
             ], 403);
         }
 
         $validator = Validator::make($request->all(), [
-            'status_geral' => 'sometimes|in:PENDENTE,EM_ANALISE,AGUARDANDO_PECAS,EM_MANUTENCAO,APROVADO',
-            'observacoes_gerais' => 'nullable|string|max:2000',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Erro de validação',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $checklist->update($validator->validated());
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Checklist atualizado com sucesso',
-            'data' => [
-                'id' => $checklist->id,
-                'status_geral' => $checklist->status_geral,
-                'percentual_ok' => round($checklist->getPercentualOk(), 2),
-            ]
-        ]);
-    }
-
-    public function updateItem(Request $request, $id)
-    {
-        $checklist = ChecklistVeicular::find($id);
-
-        if (!$checklist) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Checklist não encontrado'
-            ], 404);
-        }
-
-        if ($checklist->finalizado) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Checklist já finalizado não pode ser editado'
-            ], 403);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'item' => 'required|in:modulo_rastreador,sirene,leitor_ibutton,camera,tomada_usb,wifi,sensor_velocidade,sensor_rpm,antena_gps,antena_gprs,instalacao_eletrica,fixacao_equipamento',
+            'item' => 'required|in:modulo_rastreador,sirene,leitor_ibutton,camera,tomada_usb,wifi',
             'status' => 'required|in:OK,PROBLEMA,NAO_INSTALADO,NAO_VERIFICADO',
-            'observacao' => 'nullable|string|max:1000',
+            'observacao' => 'nullable|string|max:2000',
+            'fotos' => 'nullable|array',
+            'fotos.*' => 'string',
+            'itens_listagem' => 'nullable|array',
+            'itens_listagem.*' => 'string',
+            'itens_com_defeito' => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -515,36 +370,101 @@ class ChecklistVeicularController extends Controller
 
         $item = $request->item;
         $checklist->$item = $request->status;
-        $checklist->{$item . '_obs'} = $request->observacao;
+
+        $observacaoCompleta = $request->observacao ?: '';
+
+        if ($request->has('itens_listagem') && count($request->itens_listagem) > 0) {
+            $observacaoCompleta .= "\n\nItens instalados:\n";
+            foreach ($request->itens_listagem as $itemLista) {
+                $observacaoCompleta .= "- {$itemLista}\n";
+            }
+        }
+
+        if ($request->has('itens_com_defeito') && $request->itens_com_defeito > 0) {
+            $observacaoCompleta .= "\nItens com defeito: {$request->itens_com_defeito}";
+        }
+
+        $checklist->{$item . '_obs'} = trim($observacaoCompleta);
+
+        if ($request->has('fotos')) {
+            $fotosExistentes = $checklist->fotos ?? [];
+            $checklist->fotos = array_merge($fotosExistentes, $request->fotos);
+        }
+
         $checklist->save();
 
         return response()->json([
             'success' => true,
-            'message' => 'Item atualizado com sucesso',
+            'message' => 'Item atualizado',
             'data' => [
                 'item' => $item,
                 'status' => $checklist->$item,
-                'observacao' => $checklist->{$item . '_obs'},
-                'percentual_ok' => round($checklist->getPercentualOk(), 2),
+                'progresso' => round($checklist->getPercentualConclusao(), 2),
+            ]
+        ]);
+    }
+
+    public function uploadFoto(Request $request, $id)
+    {
+        $checklist = ChecklistVeicular::findOrFail($id);
+
+        if ($checklist->finalizado) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Checklist já finalizado'
+            ], 403);
+        }
+
+        if (!$checklist->pertenceAoTecnico(Auth::id())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Este checklist pertence a outro técnico'
+            ], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'foto' => 'required|image|max:5120',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $path = $request->file('foto')->store('checklists/' . $id, 'public');
+
+        $fotosExistentes = $checklist->fotos ?? [];
+        $fotosExistentes[] = $path;
+        $checklist->fotos = $fotosExistentes;
+        $checklist->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Foto enviada',
+            'data' => [
+                'path' => $path,
+                'url' => Storage::url($path)
             ]
         ]);
     }
 
     public function finalizar(Request $request, $id)
     {
-        $checklist = ChecklistVeicular::find($id);
-
-        if (!$checklist) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Checklist não encontrado'
-            ], 404);
-        }
+        $checklist = ChecklistVeicular::findOrFail($id);
 
         if ($checklist->finalizado) {
             return response()->json([
                 'success' => false,
-                'message' => 'Checklist já foi finalizado'
+                'message' => 'Checklist já finalizado'
+            ], 403);
+        }
+
+        if (!$checklist->pertenceAoTecnico(Auth::id())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Este checklist pertence a outro técnico'
             ], 403);
         }
 
@@ -556,7 +476,6 @@ class ChecklistVeicularController extends Controller
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Erro de validação',
                 'errors' => $validator->errors()
             ], 422);
         }
@@ -588,16 +507,14 @@ class ChecklistVeicularController extends Controller
                     ]);
 
                     $osVeiculo = OrdemServicoVeiculo::where('id_rpr', $checklist->id_rpr)
-                        ->whereHas('ordemServico', function($q) {
-                            $q->whereIn('status', ['ABERTA', 'EM_ANDAMENTO']);
-                        })
+                        ->whereHas('ordemServico', fn($q) => $q->whereIn('status', ['ABERTA', 'EM_ANDAMENTO']))
                         ->first();
 
                     if ($osVeiculo) {
                         $osVeiculo->update([
                             'status_veiculo' => 'CONCLUIDO',
                             'data_conclusao_manutencao' => now(),
-                            'servicos_realizados' => 'Checklist aprovado - Veículo OK',
+                            'servicos_realizados' => 'Checklist aprovado',
                         ]);
 
                         $os = $osVeiculo->ordemServico;
@@ -612,36 +529,16 @@ class ChecklistVeicularController extends Controller
                             ]);
                         }
                     }
-                } else {
-                    $checklist->rpr->update([
-                        'status_t8' => 'S',
-                        'cor_t8' => 'Checklist reprovado',
-                        'data_cadastro' => now(),
-                    ]);
-
-                    $osVeiculo = OrdemServicoVeiculo::where('id_rpr', $checklist->id_rpr)
-                        ->whereHas('ordemServico', function($q) {
-                            $q->whereIn('status', ['ABERTA', 'EM_ANDAMENTO']);
-                        })
-                        ->first();
-
-                    if ($osVeiculo) {
-                        $osVeiculo->update([
-                            'status_veiculo' => 'PROBLEMA_PERSISTENTE',
-                            'observacoes_tecnico' => 'Checklist reprovado',
-                        ]);
-                    }
                 }
             }
         });
 
         return response()->json([
             'success' => true,
-            'message' => 'Checklist finalizado com sucesso',
+            'message' => 'Checklist finalizado',
             'data' => [
                 'id' => $checklist->id,
                 'status_final' => $checklist->status_geral,
-                'data_finalizacao' => $checklist->data_finalizacao->format('Y-m-d H:i:s'),
             ]
         ]);
     }

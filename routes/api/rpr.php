@@ -1,37 +1,33 @@
 <?php
 
-use App\Http\Controllers\RprCicloController;
-use App\Http\Controllers\ChecklistVeicularController;
+use App\Http\Controllers\RprController;
 use Illuminate\Support\Facades\Route;
-
-// routes/api.php
 
 Route::middleware(['auth:sanctum'])->group(function () {
 
-    // Rotas de RPR/Ciclo
+    // ========================================
+    // ROTAS DE RPR (TODAS EM UM CONTROLLER)
+    // ========================================
     Route::prefix('rpr')->group(function () {
-        // Ciclo ativo
-        Route::get('/ciclo-ativo', [RprCicloController::class, 'cicloAtivo']);
-        Route::get('/ciclo-ativo/veiculos', [RprCicloController::class, 'veiculosCicloAtivo']);
 
-        // Realizar inspeção
-        Route::post('/veiculo-ciclo/{id}/inspecionar', [RprCicloController::class, 'realizarInspecao']);
+        // Tipos e Correções
+        Route::get('/tipos-correcoes', [RprController::class, 'tiposCorrecoes']);
 
-        // Histórico
-        Route::get('/ciclos/historico', [RprCicloController::class, 'historico']);
-    });
+        // Salvar RPR (Formulário Manual)
+        Route::post('/', [RprController::class, 'store']);
 
-    // Rotas de Veículos em Manutenção (Ocorrências)
-    Route::get('/veiculos-manutencao', [ChecklistVeicularController::class, 'veiculosManutencao']);
-    Route::get('/veiculo/{id_unidade}/status', [ChecklistVeicularController::class, 'statusVeiculo']);
+        // Ciclo Ativo
+        Route::get('/ciclo-ativo', [RprController::class, 'cicloAtivo']);
+        Route::get('/ciclo-ativo/veiculos', [RprController::class, 'veiculosCicloAtivo']);
 
-    // Rotas de Checklist
-    Route::prefix('checklists')->group(function () {
-        Route::get('/', [ChecklistVeicularController::class, 'index']);
-        Route::post('/', [ChecklistVeicularController::class, 'store']);
-        Route::get('/{id}', [ChecklistVeicularController::class, 'show']);
-        Route::put('/{id}', [ChecklistVeicularController::class, 'update']);
-        Route::patch('/{id}/item', [ChecklistVeicularController::class, 'updateItem']);
-        Route::post('/{id}/finalizar', [ChecklistVeicularController::class, 'finalizar']);
+        // Inspeção de Veículo no Ciclo
+        Route::post('/veiculo-ciclo/{id}/inspecionar', [RprController::class, 'realizarInspecao']);
+
+        // Listagem e Consultas
+        Route::get('/', [RprController::class, 'listar']);
+        Route::get('/unidade/{id_unidade}', [RprController::class, 'buscarPorUnidade']);
+
+        // Histórico de Ciclos
+        Route::get('/ciclos/historico', [RprController::class, 'historicoCiclos']);
     });
 });

@@ -17,6 +17,7 @@ class ChecklistVeicular extends Model
         'id_unidade',
         'id_rpr',
         'id_user_analise',
+        'id_tecnico_responsavel',
         'data_analise',
         'status_geral',
         'modulo_rastreador',
@@ -31,19 +32,8 @@ class ChecklistVeicular extends Model
         'tomada_usb_obs',
         'wifi',
         'wifi_obs',
-        'sensor_velocidade',
-        'sensor_velocidade_obs',
-        'sensor_rpm',
-        'sensor_rpm_obs',
-        'antena_gps',
-        'antena_gps_obs',
-        'antena_gprs',
-        'antena_gprs_obs',
-        'instalacao_eletrica',
-        'instalacao_eletrica_obs',
-        'fixacao_equipamento',
-        'fixacao_equipamento_obs',
         'observacoes_gerais',
+        'fotos',
         'data_prevista_conclusao',
         'finalizado',
         'data_finalizacao',
@@ -54,16 +44,14 @@ class ChecklistVeicular extends Model
         'id_unidade' => 'integer',
         'id_rpr' => 'integer',
         'id_user_analise' => 'integer',
+        'id_tecnico_responsavel' => 'integer',
         'id_user_finalizacao' => 'integer',
         'data_analise' => 'datetime',
         'data_prevista_conclusao' => 'date',
         'data_finalizacao' => 'datetime',
-        'finalizado' => 'boolean'
+        'finalizado' => 'boolean',
+        'fotos' => 'array'
     ];
-
-    // ========================================
-    // RELACIONAMENTOS
-    // ========================================
 
     public function unidade()
     {
@@ -80,14 +68,15 @@ class ChecklistVeicular extends Model
         return $this->belongsTo(User::class, 'id_user_analise', 'id');
     }
 
+    public function tecnicoResponsavel()
+    {
+        return $this->belongsTo(User::class, 'id_tecnico_responsavel', 'id');
+    }
+
     public function usuarioFinalizacao()
     {
         return $this->belongsTo(User::class, 'id_user_finalizacao', 'id');
     }
-
-    // ========================================
-    // SCOPES
-    // ========================================
 
     public function scopeAtivos($query)
     {
@@ -104,80 +93,68 @@ class ChecklistVeicular extends Model
         return $query->where('status_geral', $status);
     }
 
-    // ========================================
-    // MÉTODOS
-    // ========================================
+    public function scopeDoTecnico($query, $idTecnico)
+    {
+        return $query->where('id_tecnico_responsavel', $idTecnico);
+    }
 
-    public function getPercentualOk(): float
+    public function getPercentualConclusao(): float
     {
         $campos = [
-            'modulo_rastreador', 'sirene', 'leitor_ibutton', 'camera',
-            'tomada_usb', 'wifi', 'sensor_velocidade', 'sensor_rpm',
-            'antena_gps', 'antena_gprs', 'instalacao_eletrica', 'fixacao_equipamento'
+            'modulo_rastreador',
+            'sirene',
+            'leitor_ibutton',
+            'camera',
+            'tomada_usb',
+            'wifi'
         ];
 
         $total = 0;
-        $ok = 0;
+        $concluidos = 0;
 
         foreach ($campos as $campo) {
             if ($this->$campo && $this->$campo !== 'NAO_VERIFICADO') {
                 $total++;
-                if ($this->$campo === 'OK') {
-                    $ok++;
+                if (in_array($this->$campo, ['OK', 'PROBLEMA', 'NAO_INSTALADO'])) {
+                    $concluidos++;
                 }
             }
         }
 
-        return $total > 0 ? ($ok / $total) * 100 : 0;
+        return $total > 0 ? ($concluidos / $total) * 100 : 0;
     }
+
+
 
     public function getItensComProblema(): array
     {
+        $itens = [];
         $campos = [
             'modulo_rastreador' => 'Módulo Rastreador',
             'sirene' => 'Sirene',
             'leitor_ibutton' => 'Leitor iButton',
             'camera' => 'Câmera',
             'tomada_usb' => 'Tomada USB',
-            'wifi' => 'WiFi',
-            'sensor_velocidade' => 'Sensor de Velocidade',
-            'sensor_rpm' => 'Sensor RPM',
-            'antena_gps' => 'Antena GPS',
-            'antena_gprs' => 'Antena GPRS',
-            'instalacao_eletrica' => 'Instalação Elétrica',
-            'fixacao_equipamento' => 'Fixação do Equipamento'
+            'wifi' => 'WiFi'
         ];
 
-        $itensComProblema = [];
-
         foreach ($campos as $campo => $nome) {
-            if ($this->$campo === 'PROBLEMA') {
-                $itensComProblema[] = [
+            $statusCampo = $this->$campo;
+
+            if ($statusCampo && $statusCampo !== 'NAO_VERIFICADO') {
+                $itens[] = [
                     'item' => $nome,
-                    'observacao' => $this->{$campo . '_obs'}
+                    'observacao' => $this->{$campo . '_obs'},
+                    'status' => $statusCampo,
                 ];
             }
         }
 
-        return $itensComProblema;
+        return $itens;
     }
 
-    public function getTotalItensVerificados(): int
+    public function pertenceAoTecnico($idTecnico): bool
     {
-        $campos = [
-            'modulo_rastreador', 'sirene', 'leitor_ibutton', 'camera',
-            'tomada_usb', 'wifi', 'sensor_velocidade', 'sensor_rpm',
-            'antena_gps', 'antena_gprs', 'instalacao_eletrica', 'fixacao_equipamento'
-        ];
-
-        $total = 0;
-
-        foreach ($campos as $campo) {
-            if ($this->$campo && $this->$campo !== 'NAO_VERIFICADO') {
-                $total++;
-            }
-        }
-
-        return $total;
+        return $this->id_tecnico_responsavel == $idTecnico;
     }
 }
